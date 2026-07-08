@@ -374,16 +374,18 @@
                               RowStyle="{StaticResource OptionRowStyle}">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="" Binding="{Binding AtmLabel}" Width="48" />
-                            <DataGridTextColumn Header="CE IV" Binding="{Binding Snapshot.Call.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="*" />
-                            <DataGridTextColumn Header="CE OI" Binding="{Binding Snapshot.Call.OpenInterest, StringFormat=N0}" CellStyle="{StaticResource CallOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.2*" />
-                            <DataGridTextColumn Header="CE OI Chg" Binding="{Binding Snapshot.Call.OpenInterestChange, StringFormat=N0}" CellStyle="{StaticResource CallOiChangeCell}" ElementStyle="{StaticResource CallOiChangeText}" Width="1.2*" />
-                            <DataGridTextColumn Header="CE LTP" Binding="{Binding Snapshot.Call.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="*" />
+                            <DataGridTextColumn Header="CE IV" Binding="{Binding Snapshot.Call.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTextColumn Header="CE OI" Binding="{Binding CallOpenInterestText}" CellStyle="{StaticResource CallOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.1*" />
+                            <DataGridTextColumn Header="CE Vol" Binding="{Binding CallVolumeText}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTextColumn Header="CE OI Chg" Binding="{Binding CallOpenInterestChangeText}" CellStyle="{StaticResource CallOiChangeCell}" ElementStyle="{StaticResource CallOiChangeText}" Width="1.1*" />
+                            <DataGridTextColumn Header="CE LTP" Binding="{Binding Snapshot.Call.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
                             <DataGridTextColumn Header="Strike" Binding="{Binding Strike, StringFormat=N0}" ElementStyle="{StaticResource StrikeCellText}" Width="*" />
-                            <DataGridTextColumn Header="PE LTP" Binding="{Binding Snapshot.Put.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="*" />
-                            <DataGridTextColumn Header="PE OI Chg" Binding="{Binding Snapshot.Put.OpenInterestChange, StringFormat=N0}" CellStyle="{StaticResource PutOiChangeCell}" ElementStyle="{StaticResource PutOiChangeText}" Width="1.2*" />
-                            <DataGridTextColumn Header="PE OI" Binding="{Binding Snapshot.Put.OpenInterest, StringFormat=N0}" CellStyle="{StaticResource PutOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.2*" />
-                            <DataGridTextColumn Header="PE IV" Binding="{Binding Snapshot.Put.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="*" />
-                            <DataGridTextColumn Header="Pressure" Binding="{Binding PressureLabel}" ElementStyle="{StaticResource PressureText}" Width="1.2*" />
+                            <DataGridTextColumn Header="PE LTP" Binding="{Binding Snapshot.Put.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTextColumn Header="PE OI Chg" Binding="{Binding PutOpenInterestChangeText}" CellStyle="{StaticResource PutOiChangeCell}" ElementStyle="{StaticResource PutOiChangeText}" Width="1.1*" />
+                            <DataGridTextColumn Header="PE Vol" Binding="{Binding PutVolumeText}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTextColumn Header="PE OI" Binding="{Binding PutOpenInterestText}" CellStyle="{StaticResource PutOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.1*" />
+                            <DataGridTextColumn Header="PE IV" Binding="{Binding Snapshot.Put.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTextColumn Header="Pressure" Binding="{Binding PressureLabel}" ElementStyle="{StaticResource PressureText}" Width="1*" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>

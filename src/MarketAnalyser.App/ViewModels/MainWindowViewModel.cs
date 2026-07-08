@@ -823,7 +823,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ?.Strike;
 
         StrikeRows.Clear();
-        foreach (var strike in next.Strikes)
+        foreach (var strike in next.Strikes.OrderByDescending(strike => strike.Strike))
         {
             StrikeRows.Add(new OptionChainRowViewModel(
                 strike,
@@ -1642,7 +1642,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             AddAlert(
                 $"call-buildup:{strongestCall.Strike}",
                 "CE buildup",
-                $"{FormatNumber(strongestCall.Strike)} CE OI change {strongestCall.Call.OpenInterestChange:N0}",
+                $"{FormatNumber(strongestCall.Strike)} CE OI change {CompactNumberFormatter.FormatChange(strongestCall.Call.OpenInterestChange)}",
                 Brushes.IndianRed,
                 next.Timestamp,
                 cooldown);
@@ -1656,7 +1656,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             AddAlert(
                 $"put-buildup:{strongestPut.Strike}",
                 "PE buildup",
-                $"{FormatNumber(strongestPut.Strike)} PE OI change {strongestPut.Put.OpenInterestChange:N0}",
+                $"{FormatNumber(strongestPut.Strike)} PE OI change {CompactNumberFormatter.FormatChange(strongestPut.Put.OpenInterestChange)}",
                 Brushes.MediumSeaGreen,
                 next.Timestamp,
                 cooldown);
@@ -1929,6 +1929,18 @@ public sealed class OptionChainRowViewModel
 
     public Brush PutOiChangeForeground { get; }
 
+    public string CallOpenInterestText => CompactNumberFormatter.FormatCount(Snapshot.Call.OpenInterest);
+
+    public string CallVolumeText => CompactNumberFormatter.FormatCount(Snapshot.Call.Volume);
+
+    public string CallOpenInterestChangeText => CompactNumberFormatter.FormatChange(Snapshot.Call.OpenInterestChange);
+
+    public string PutOpenInterestChangeText => CompactNumberFormatter.FormatChange(Snapshot.Put.OpenInterestChange);
+
+    public string PutVolumeText => CompactNumberFormatter.FormatCount(Snapshot.Put.Volume);
+
+    public string PutOpenInterestText => CompactNumberFormatter.FormatCount(Snapshot.Put.OpenInterest);
+
     public string AtmLabel => IsAtm ? "ATM" : string.Empty;
 
     public string PressureLabel { get; }
@@ -1980,6 +1992,36 @@ public sealed class OptionChainRowViewModel
         }
 
         return "Balanced";
+    }
+}
+
+internal static class CompactNumberFormatter
+{
+    public static string FormatCount(long value)
+    {
+        return Format(value, includeSign: false);
+    }
+
+    public static string FormatChange(long value)
+    {
+        return Format(value, includeSign: true);
+    }
+
+    private static string Format(long value, bool includeSign)
+    {
+        var abs = Math.Abs(value);
+        var formatted = abs >= 10_000_000
+            ? $"{abs / 10_000_000m:N1}Cr"
+            : abs >= 100_000
+                ? $"{abs / 100_000m:N1}L"
+                : abs.ToString("N0", CultureInfo.CurrentCulture);
+
+        if (value < 0)
+        {
+            return "-" + formatted;
+        }
+
+        return includeSign && value > 0 ? "+" + formatted : formatted;
     }
 }
 
