@@ -468,16 +468,44 @@
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="64" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="64" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <DatePicker SelectedDate="{Binding ReplaySelectedDate, Mode=TwoWay}" />
-                            <Button Grid.Column="1" Content="Load" Command="{Binding LoadReplayCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="2" Content="Step" Command="{Binding ReplayStepCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="3" Content="{Binding ReplayPlayPauseText}" Command="{Binding ReplayPlayPauseCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="4" Content="Live" Command="{Binding ResumeLiveCommand}" Padding="8,2" Margin="6,0,0,0" HorizontalAlignment="Left" />
+                            <ComboBox Grid.Column="1"
+                                      ItemsSource="{Binding ReplayHourOptions}"
+                                      SelectedItem="{Binding ReplaySelectedHour, Mode=TwoWay}"
+                                      Width="60">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StringFormat={}{0:00}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Grid.Column="2"
+                                       Text=":"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center" />
+                            <ComboBox Grid.Column="3"
+                                      ItemsSource="{Binding ReplayMinuteOptions}"
+                                      SelectedItem="{Binding ReplaySelectedMinute, Mode=TwoWay}"
+                                      Width="60">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StringFormat={}{0:00}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="4" Content="Load" Command="{Binding LoadReplayCommand}" Padding="8,2" Margin="6,0,0,0" />
+                            <Button Grid.Column="5" Content="Step" Command="{Binding ReplayStepCommand}" Padding="8,2" Margin="6,0,0,0" />
+                            <Button Grid.Column="6" Content="{Binding ReplayPlayPauseText}" Command="{Binding ReplayPlayPauseCommand}" Padding="8,2" Margin="6,0,0,0" />
+                            <Button Grid.Column="7" Content="Live" Command="{Binding ResumeLiveCommand}" Padding="8,2" Margin="6,0,0,0" HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock Text="{Binding ReplayStatusText}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding SessionReviewSummaryText}" TextWrapping="Wrap" Foreground="#D8E1EC" />

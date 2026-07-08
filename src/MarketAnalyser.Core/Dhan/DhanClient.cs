@@ -82,6 +82,24 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
             ReadLongArray(root, "timestamp"));
     }
 
+    public async Task<string?> GetFullQuoteAsync(
+        DhanMarketQuoteRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            return null;
+        }
+
+        using var message = CreateRequest(HttpMethod.Post, "marketfeed/quote");
+        message.Content = JsonContent.Create(new Dictionary<string, int[]>
+        {
+            [request.ExchangeSegment] = [request.SecurityId]
+        });
+
+        return await SendRawAsync(message, cancellationToken);
+    }
+
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
     {
         var uri = new Uri($"{options.RestBaseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
@@ -182,6 +200,10 @@ public sealed record DhanHistoricalRequest(
     string Instrument,
     DateOnly FromDate,
     DateOnly ToDate);
+
+public sealed record DhanMarketQuoteRequest(
+    string ExchangeSegment,
+    int SecurityId);
 
 public sealed record DhanHistoricalResponse(
     [property: JsonPropertyName("close")]

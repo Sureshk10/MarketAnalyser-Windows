@@ -78,6 +78,15 @@ public sealed class MarketSessionStore
         DateOnly date,
         CancellationToken cancellationToken)
     {
+        return await LoadRecordsAsync(symbol, date, null, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<MarketSessionRecord>> LoadRecordsAsync(
+        string symbol,
+        DateOnly date,
+        DateTimeOffset? startFrom,
+        CancellationToken cancellationToken)
+    {
         var path = GetSessionPath(symbol, date);
         if (!File.Exists(path))
         {
@@ -97,6 +106,11 @@ public sealed class MarketSessionStore
                 var record = JsonSerializer.Deserialize<MarketSessionRecord>(line, JsonOptions);
                 if (record is not null)
                 {
+                    if (startFrom is not null && record.Timestamp < startFrom.Value)
+                    {
+                        continue;
+                    }
+
                     records.Add(record);
                 }
             }
@@ -227,7 +241,8 @@ public sealed record MarketSessionRecord(
     decimal? SelectedStrike,
     string Signal,
     string SignalDetail,
-    IReadOnlyList<MarketSessionStrikeRecord> Strikes)
+    IReadOnlyList<MarketSessionStrikeRecord> Strikes,
+    MarketSessionDepthRecord? Depth = null)
 {
     public static MarketSessionRecord FromSnapshot(
         MarketSnapshot snapshot,
@@ -250,7 +265,48 @@ public sealed record MarketSessionRecord(
             selectedStrike?.Strike,
             signal.Label,
             signal.Detail,
-            snapshot.Strikes.Select(MarketSessionStrikeRecord.FromStrike).ToArray());
+            snapshot.Strikes.Select(MarketSessionStrikeRecord.FromStrike).ToArray(),
+            MarketSessionDepthRecord.FromDepth(snapshot.Depth));
+    }
+}
+
+public sealed record MarketSessionDepthRecord(
+    IReadOnlyList<MarketSessionDepthLevelRecord> Bids,
+    IReadOnlyList<MarketSessionDepthLevelRecord> Asks)
+{
+    public static MarketSessionDepthRecord? FromDepth(MarketDepthSnapshot? depth)
+    {
+        if (depth is null)
+        {
+            return null;
+        }
+
+        return new MarketSessionDepthRecord(
+            depth.FiveLevelBids.Select(MarketSessionDepthLevelRecord.FromLevel).ToArray(),
+            depth.FiveLevelAsks.Select(MarketSessionDepthLevelRecord.FromLevel).ToArray());
+    }
+
+    public MarketDepthSnapshot ToDepth()
+    {
+        return new MarketDepthSnapshot(
+            Bids.Select(level => level.ToLevel()).ToArray(),
+            Asks.Select(level => level.ToLevel()).ToArray());
+    }
+}
+
+public sealed record MarketSessionDepthLevelRecord(
+    decimal Price,
+    long Quantity,
+    int Orders = 0)
+{
+    public static MarketSessionDepthLevelRecord FromLevel(MarketDepthLevelSnapshot level)
+    {
+        return new MarketSessionDepthLevelRecord(level.Price, level.Quantity, level.Orders);
+    }
+
+    public MarketDepthLevelSnapshot ToLevel()
+    {
+        return new MarketDepthLevelSnapshot(Price, Quantity, Orders);
     }
 }
 

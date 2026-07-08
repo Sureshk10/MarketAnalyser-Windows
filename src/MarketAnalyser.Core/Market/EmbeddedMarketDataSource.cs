@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using MarketAnalyser.Core.Configuration;
 using MarketAnalyser.Core.Dhan;
 
@@ -74,9 +75,10 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
 
         snapshotCache.TryGetValue(instrument.Symbol, out var previousSnapshot);
         var previousClose = await GetPreviousCloseAsync(instrument, cancellationToken);
+        var marketDepth = await TryGetMarketDepthAsync(instrument, cancellationToken);
         instrumentIndex.ReplaceSymbol(instrument.Symbol, CreateInstrumentRefs(instrument, response));
         liveFeed.Value.Start();
-        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose);
+        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose, marketDepth);
         snapshotCache[instrument.Symbol] = snapshot;
         return snapshot;
     }
@@ -216,7 +218,8 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         InstrumentSummary instrument,
         DhanOptionChainResponse response,
         MarketSnapshot? previous,
-        PreviousCloseResult previousClose)
+        PreviousCloseResult previousClose,
+        MarketDepthSnapshot? marketDepth)
     {
         var now = DateTimeOffset.UtcNow;
         var spot = response.Data.LastPrice;
@@ -244,7 +247,8 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             AppendPoint(previous?.OiChangeSeries ?? [], now, totalPutOiChange - totalCallOiChange),
             AppendStrikeOiHistory(previous?.StrikeOiChangeSeries ?? [], displayStrikes, now),
             GetPreviousClose(previous, previousClose.Close),
-            previousClose.Status);
+            previousClose.Status,
+            marketDepth);
     }
 
     private static decimal GetSpotChange(decimal spot, MarketSnapshot? previous, PreviousCloseResult previousClose)
@@ -389,6 +393,33 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             TopBidQuantity: leg.TopBidQuantity,
             TopAskPrice: leg.TopAskPrice,
             TopAskQuantity: leg.TopAskQuantity);
+    }
+
+    private async Task<MarketDepthSnapshot?> TryGetMarketDepthAsync(
+        InstrumentSummary instrument,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await dhanClient.GetFullQuoteAsync(
+                new DhanMarketQuoteRequest(instrument.UnderlyingSegment, instrument.UnderlyingSecurityId),
+                cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                return null;
+            }
+
+            return DhanMarketQuoteParser.TryParseDepth(
+                response,
+                instrument.UnderlyingSegment,
+                instrument.UnderlyingSecurityId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine(ex);
+            return null;
+        }
     }
 
     internal static MarketBreadth CreateBreadth(IReadOnlyList<OptionStrikeSnapshot> strikes)

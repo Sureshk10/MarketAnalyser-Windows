@@ -53,6 +53,66 @@ public sealed record OptionLegSnapshot(
         : 0;
 }
 
+public sealed record MarketDepthLevelSnapshot(
+    decimal Price,
+    long Quantity,
+    int Orders = 0);
+
+public sealed record MarketDepthSnapshot(
+    IReadOnlyList<MarketDepthLevelSnapshot>? Bids = null,
+    IReadOnlyList<MarketDepthLevelSnapshot>? Asks = null)
+{
+    public IReadOnlyList<MarketDepthLevelSnapshot> BidLevels => Bids ?? [];
+
+    public IReadOnlyList<MarketDepthLevelSnapshot> AskLevels => Asks ?? [];
+
+    public IReadOnlyList<MarketDepthLevelSnapshot> FiveLevelBids => BidLevels.Take(5).ToArray();
+
+    public IReadOnlyList<MarketDepthLevelSnapshot> FiveLevelAsks => AskLevels.Take(5).ToArray();
+
+    public long BidQuantity => FiveLevelBids.Sum(level => level.Quantity);
+
+    public long AskQuantity => FiveLevelAsks.Sum(level => level.Quantity);
+
+    public long Imbalance => BidQuantity - AskQuantity;
+
+    public int PressureScore
+    {
+        get
+        {
+            if (BidQuantity == 0 || AskQuantity == 0)
+            {
+                return 0;
+            }
+
+            var bidRatio = (decimal)BidQuantity / AskQuantity;
+            if (bidRatio >= 1.12m)
+            {
+                return 1;
+            }
+
+            if (bidRatio <= 0.88m)
+            {
+                return -1;
+            }
+
+            return 0;
+        }
+    }
+
+    public MarketDepthLevelSnapshot? BestBid => BidLevels.FirstOrDefault();
+
+    public MarketDepthLevelSnapshot? BestAsk => AskLevels.FirstOrDefault();
+
+    public decimal MidPrice => BestBid is not null && BestAsk is not null && BestBid.Price > 0 && BestAsk.Price > 0
+        ? decimal.Round((BestBid.Price + BestAsk.Price) / 2m, 2)
+        : 0;
+
+    public decimal Spread => BestBid is not null && BestAsk is not null && BestBid.Price > 0 && BestAsk.Price > 0
+        ? decimal.Round(BestAsk.Price - BestBid.Price, 2)
+        : 0;
+}
+
 public sealed record OptionStrikeSnapshot(
     decimal Strike,
     OptionLegSnapshot Call,
@@ -89,7 +149,8 @@ public sealed record MarketSnapshot(
     IReadOnlyList<ChartPoint> OiChangeSeries,
     IReadOnlyList<StrikeOiChangeSeries> StrikeOiChangeSeries,
     decimal? PreviousClose = null,
-    string PreviousCloseStatus = "");
+    string PreviousCloseStatus = "",
+    MarketDepthSnapshot? Depth = null);
 
 public interface IMarketDataSource
 {

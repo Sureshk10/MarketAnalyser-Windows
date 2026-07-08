@@ -57,6 +57,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string replayOutcomeText = "Load replay to evaluate follow-through";
     private Brush replayOutcomeForeground = Brushes.LightSlateGray;
     private DateTime? replaySelectedDate = DateTime.Today;
+    private int replaySelectedHour = 9;
+    private int replaySelectedMinute = 15;
     private IReadOnlyList<MarketSessionRecord> replayRecords = [];
     private int replayIndex = -1;
     private bool isReplayMode;
@@ -523,6 +525,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get => replaySelectedDate;
         set => SetField(ref replaySelectedDate, value);
+    }
+
+    public IReadOnlyList<int> ReplayHourOptions { get; } = Enumerable.Range(0, 24).ToArray();
+
+    public IReadOnlyList<int> ReplayMinuteOptions { get; } = Enumerable.Range(0, 60).ToArray();
+
+    public int ReplaySelectedHour
+    {
+        get => replaySelectedHour;
+        set => SetField(ref replaySelectedHour, Math.Clamp(value, 0, 23));
+    }
+
+    public int ReplaySelectedMinute
+    {
+        get => replaySelectedMinute;
+        set => SetField(ref replaySelectedMinute, Math.Clamp(value, 0, 59));
     }
 
     public string ReplayStatusText
@@ -1066,12 +1084,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (depthPressure > 0)
         {
             score++;
-            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+            reasons.Add(DescribeDepthPressure(Snapshot));
         }
         else if (depthPressure < 0)
         {
             score--;
-            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+            reasons.Add(DescribeDepthPressure(Snapshot));
         }
 
         if (Snapshot.Breadth.PutCallRatioOi >= 1.15m)
@@ -1145,12 +1163,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var bearishOptionConfirm = oiShift < 0 || snapshot.Breadth.PutCallRatioOi <= 0.95m || depthPressure < 0;
         var strongUp = move20 >= 150m || move10 >= 75m;
         var strongDown = move20 <= -150m || move10 <= -75m;
+        var depthText = DescribeDepthPressure(snapshot);
 
         if (strongUp && breaksHigh && bullishOptionConfirm)
         {
             return new SharpMovementViewModel(
                 move20 >= 150m ? "Sharp Bullish Expansion" : "Fast Bullish Break",
-                BuildSharpMovementDetail(move10, move20, "new session high", oiShift, depthPressure, snapshot.Breadth.PutCallRatioOi),
+                BuildSharpMovementDetail(move10, move20, "new session high", oiShift, depthText, snapshot.Breadth.PutCallRatioOi),
                 Brushes.MediumSeaGreen);
         }
 
@@ -1158,7 +1177,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             return new SharpMovementViewModel(
                 move20 <= -150m ? "Sharp Bearish Expansion" : "Fast Bearish Break",
-                BuildSharpMovementDetail(move10, move20, "new session low", oiShift, depthPressure, snapshot.Breadth.PutCallRatioOi),
+                BuildSharpMovementDetail(move10, move20, "new session low", oiShift, depthText, snapshot.Breadth.PutCallRatioOi),
                 Brushes.IndianRed);
         }
 
@@ -1180,7 +1199,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         decimal move20,
         string rangeBreak,
         decimal oiShift,
-        long depthPressure,
+        string depthText,
         decimal pcrOi)
     {
         var pressure = oiShift > 0
@@ -1189,7 +1208,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 ? "CE OI shift stronger"
                 : "OI balanced";
 
-        return $"10m {FormatSigned(move10)} | 20m {FormatSigned(move20)} | {rangeBreak} | {pressure} | depth {CompactNumberFormatter.FormatChange(depthPressure)} | PCR OI {pcrOi:N2}";
+        return $"10m {FormatSigned(move10)} | 20m {FormatSigned(move20)} | {rangeBreak} | {pressure} | {depthText} | PCR OI {pcrOi:N2}";
     }
 
     private void UpdateSessionReview(
@@ -1310,11 +1329,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         try
         {
             var date = DateOnly.FromDateTime(ReplaySelectedDate.Value);
-            var records = await sessionStore.LoadRecordsAsync(SelectedInstrument.Symbol, date, CancellationToken.None);
+            var startFrom = BuildReplayStartTimestamp(date);
+            var records = await sessionStore.LoadRecordsAsync(
+                SelectedInstrument.Symbol,
+                date,
+                startFrom,
+                CancellationToken.None);
             if (records.Count == 0)
             {
                 StopReplay(clearRecords: true);
-                ReplayStatusText = $"No replay records for {date:yyyy-MM-dd}";
+                ReplayStatusText = $"No replay records for {date:yyyy-MM-dd} from {startFrom.ToLocalTime():HH:mm}";
                 ReplayOutcomeText = "No replay records to evaluate";
                 ReplayOutcomeForeground = Brushes.LightSlateGray;
                 return;
@@ -1325,7 +1349,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             isReplayMode = true;
             refreshTimer.Stop();
             OnPropertyChanged(nameof(LiveModeText));
-            ReplayStatusText = $"Loaded {records.Count:N0} records for {date:yyyy-MM-dd}";
+            ReplayStatusText = $"Loaded {records.Count:N0} records for {date:yyyy-MM-dd} from {startFrom.ToLocalTime():HH:mm}";
             ReplayStep();
         }
         catch (Exception ex)
@@ -1333,6 +1357,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             AppExceptionLogger.Log(ex);
             ReplayStatusText = "Replay load failed";
         }
+    }
+
+    private DateTimeOffset BuildReplayStartTimestamp(DateOnly date)
+    {
+        var localStart = date.ToDateTime(new TimeOnly(ReplaySelectedHour, ReplaySelectedMinute));
+        var offset = TimeZoneInfo.Local.GetUtcOffset(localStart);
+        return new DateTimeOffset(localStart, offset);
     }
 
     private void ReplayStep()
@@ -1555,7 +1586,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 record.TotalPutVolume),
             priceSeries,
             oiSeries,
-            BuildReplayStrikeHistory(recordsToPoint));
+            BuildReplayStrikeHistory(recordsToPoint),
+            null,
+            string.Empty,
+            record.Depth?.ToDepth());
     }
 
     private static OptionStrikeSnapshot ToReplayStrike(MarketSessionStrikeRecord record)
@@ -1826,12 +1860,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (depthPressure > 0)
         {
             score++;
-            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+            reasons.Add(DescribeDepthPressure(snapshot));
         }
         else if (depthPressure < 0)
         {
             score--;
-            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+            reasons.Add(DescribeDepthPressure(snapshot));
         }
 
         var riskPoints = ResolveSignalRiskPoints(snapshot);
@@ -1874,10 +1908,35 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private static long AggregateDepthPressure(MarketSnapshot snapshot)
     {
+        if (snapshot.Depth is { } depth && (depth.BidQuantity > 0 || depth.AskQuantity > 0))
+        {
+            return depth.Imbalance;
+        }
+
+        return AggregateStrikeDepthPressure(snapshot);
+    }
+
+    private static long AggregateStrikeDepthPressure(MarketSnapshot snapshot)
+    {
         return snapshot.Strikes
             .OrderBy(strike => Math.Abs(strike.Strike - snapshot.Spot))
             .Take(3)
             .Sum(strike => strike.Call.DepthImbalance - strike.Put.DepthImbalance);
+    }
+
+    private static string DescribeDepthPressure(MarketSnapshot snapshot)
+    {
+        if (snapshot.Depth is { } depth && (depth.BidQuantity > 0 || depth.AskQuantity > 0))
+        {
+            var bestBid = depth.BestBid is null ? string.Empty : $" best bid {CompactNumberFormatter.FormatCount(depth.BestBid.Quantity)}@{depth.BestBid.Price:N2}";
+            var bestAsk = depth.BestAsk is null ? string.Empty : $" best ask {CompactNumberFormatter.FormatCount(depth.BestAsk.Quantity)}@{depth.BestAsk.Price:N2}";
+            return $"5L depth B {CompactNumberFormatter.FormatCount(depth.BidQuantity)} / A {CompactNumberFormatter.FormatCount(depth.AskQuantity)}{bestBid}{bestAsk}";
+        }
+
+        var strikeDepth = AggregateStrikeDepthPressure(snapshot);
+        return strikeDepth == 0
+            ? "depth balanced"
+            : $"strike depth {CompactNumberFormatter.FormatChange(strikeDepth)}";
     }
 
     private static decimal ResolveSignalRiskPoints(MarketSnapshot snapshot)

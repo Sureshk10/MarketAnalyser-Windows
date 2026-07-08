@@ -25,6 +25,7 @@ public static class MockMarketData
 
         var totalCallOiChange = strikes.Sum(strike => strike.Call.OpenInterestChange);
         var totalPutOiChange = strikes.Sum(strike => strike.Put.OpenInterestChange);
+        var depth = CreateDepth(spot, instrument.StrikeInterval);
 
         return new MarketSnapshot(
             instrument.Symbol,
@@ -35,7 +36,10 @@ public static class MockMarketData
             EmbeddedMarketDataSource.CreateBreadth(strikes),
             EmbeddedMarketDataSource.AppendPoint(previous?.PriceSeries ?? [], now, spot),
             EmbeddedMarketDataSource.AppendPoint(previous?.OiChangeSeries ?? [], now, totalPutOiChange - totalCallOiChange),
-            EmbeddedMarketDataSource.AppendStrikeOiHistory(previous?.StrikeOiChangeSeries ?? [], strikes, now));
+            EmbeddedMarketDataSource.AppendStrikeOiHistory(previous?.StrikeOiChangeSeries ?? [], strikes, now),
+            null,
+            string.Empty,
+            depth);
     }
 
     private static OptionStrikeSnapshot CreateStrike(decimal strike, decimal spot, decimal strikeInterval)
@@ -87,5 +91,34 @@ public static class MockMarketData
             bidQuantity,
             askPrice,
             askQuantity);
+    }
+
+    private static MarketDepthSnapshot CreateDepth(decimal spot, decimal strikeInterval)
+    {
+        var tick = Math.Max(0.05m, decimal.Round(strikeInterval / 100m, 2));
+        var bidBase = Math.Max(1_000, (long)(spot * 5m));
+        var askBase = Math.Max(1_000, (long)(spot * 4.5m));
+
+        var bids = Enumerable.Range(0, 5)
+            .Select(level =>
+            {
+                var price = decimal.Round(spot - tick * (level + 1), 2);
+                var quantity = bidBase + Random.Next(0, (int)Math.Min(int.MaxValue, bidBase / 2));
+                var orders = Math.Max(1, 2 + Random.Next(0, 6) - level);
+                return new MarketDepthLevelSnapshot(price, quantity, orders);
+            })
+            .ToArray();
+
+        var asks = Enumerable.Range(0, 5)
+            .Select(level =>
+            {
+                var price = decimal.Round(spot + tick * (level + 1), 2);
+                var quantity = askBase + Random.Next(0, (int)Math.Min(int.MaxValue, askBase / 2));
+                var orders = Math.Max(1, 2 + Random.Next(0, 6) - level);
+                return new MarketDepthLevelSnapshot(price, quantity, orders);
+            })
+            .ToArray();
+
+        return new MarketDepthSnapshot(bids, asks);
     }
 }
