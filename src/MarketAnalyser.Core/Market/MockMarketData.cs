@@ -67,6 +67,10 @@ public static class MockMarketData
         var openInterest = (long)((90_000 + Random.Next(0, 280_000)) * bias);
         var volume = (long)((12_000 + Random.Next(0, 90_000)) * bias);
         var oiChange = (long)((Random.Next(-35_000, 75_000)) * bias);
+        var bidQuantity = Math.Max(1, (long)(volume * (0.18m + Random.Next(5, 18) / 100m)));
+        var askQuantity = Math.Max(1, (long)(volume * (0.16m + Random.Next(5, 18) / 100m)));
+        var bidPrice = decimal.Round(Math.Max(0.05m, lastPrice - Random.Next(1, 5) * 0.05m), 2);
+        var askPrice = decimal.Round(lastPrice + Random.Next(1, 5) * 0.05m, 2);
 
         return new OptionLegSnapshot(
             lastPrice,
@@ -78,6 +82,10 @@ public static class MockMarketData
             side == OptionSide.Call ? decimal.Round(0.55m - distance * 0.035m, 4) : decimal.Round(-0.55m + distance * 0.035m, 4),
             decimal.Round(0.001m + Random.Next(0, 20) / 10000m, 5),
             decimal.Round(-8 - distance * 0.8m, 4),
-            decimal.Round(3 + distance * 0.2m, 4));
+            decimal.Round(3 + distance * 0.2m, 4),
+            bidPrice,
+            bidQuantity,
+            askPrice,
+            askQuantity);
     }
 }

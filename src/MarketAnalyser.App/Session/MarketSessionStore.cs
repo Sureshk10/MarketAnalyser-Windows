@@ -267,7 +267,15 @@ public sealed record MarketSessionStrikeRecord(
     decimal PutImpliedVolatility,
     decimal PutDelta,
     decimal Support,
-    decimal Resistance)
+    decimal Resistance,
+    decimal CallTopBidPrice = 0,
+    long CallTopBidQuantity = 0,
+    decimal CallTopAskPrice = 0,
+    long CallTopAskQuantity = 0,
+    decimal PutTopBidPrice = 0,
+    long PutTopBidQuantity = 0,
+    decimal PutTopAskPrice = 0,
+    long PutTopAskQuantity = 0)
 {
     public static MarketSessionStrikeRecord FromStrike(OptionStrikeSnapshot strike)
     {
@@ -284,6 +292,20 @@ public sealed record MarketSessionStrikeRecord(
             strike.Put.ImpliedVolatility,
             strike.Put.Delta,
             strike.Support,
-            strike.Resistance);
+            strike.Resistance,
+            strike.Call.TopBidPrice,
+            strike.Call.TopBidQuantity,
+            strike.Call.TopAskPrice,
+            strike.Call.TopAskQuantity,
+            strike.Put.TopBidPrice,
+            strike.Put.TopBidQuantity,
+            strike.Put.TopAskPrice,
+            strike.Put.TopAskQuantity);
     }
+
+    public long CallDepthImbalance => CallTopBidQuantity - CallTopAskQuantity;
+
+    public long PutDepthImbalance => PutTopBidQuantity - PutTopAskQuantity;
+
+    public long NetDepthImbalance => CallDepthImbalance - PutDepthImbalance;
 }

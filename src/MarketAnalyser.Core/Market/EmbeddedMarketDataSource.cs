@@ -384,7 +384,11 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             Delta: decimal.Round(leg.Greeks?.Delta ?? 0, 4),
             Gamma: decimal.Round(leg.Greeks?.Gamma ?? 0, 5),
             Theta: decimal.Round(leg.Greeks?.Theta ?? 0, 4),
-            Vega: decimal.Round(leg.Greeks?.Vega ?? 0, 4));
+            Vega: decimal.Round(leg.Greeks?.Vega ?? 0, 4),
+            TopBidPrice: leg.TopBidPrice,
+            TopBidQuantity: leg.TopBidQuantity,
+            TopAskPrice: leg.TopAskPrice,
+            TopAskQuantity: leg.TopAskQuantity);
     }
 
     internal static MarketBreadth CreateBreadth(IReadOnlyList<OptionStrikeSnapshot> strikes)

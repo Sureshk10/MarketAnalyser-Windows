@@ -555,7 +555,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string SelectedStrikeDetail => SelectedStrike is null
         ? "Support, resistance and Greeks will appear here."
-        : $"Support {FormatNumber(SelectedStrike.Support)} | Resistance {FormatNumber(SelectedStrike.Resistance)} | Delta CE/PE {SelectedStrike.Call.Delta:N4}/{SelectedStrike.Put.Delta:N4} | IV CE/PE {SelectedStrike.Call.ImpliedVolatility:N2}/{SelectedStrike.Put.ImpliedVolatility:N2}";
+        : $"Support {FormatNumber(SelectedStrike.Support)} | Resistance {FormatNumber(SelectedStrike.Resistance)} | Delta CE/PE {SelectedStrike.Call.Delta:N4}/{SelectedStrike.Put.Delta:N4} | IV CE/PE {SelectedStrike.Call.ImpliedVolatility:N2}/{SelectedStrike.Put.ImpliedVolatility:N2} | Depth CE B {CompactNumberFormatter.FormatCount(SelectedStrike.Call.TopBidQuantity)}@{SelectedStrike.Call.TopBidPrice:N2} / A {CompactNumberFormatter.FormatCount(SelectedStrike.Call.TopAskQuantity)}@{SelectedStrike.Call.TopAskPrice:N2} | PE B {CompactNumberFormatter.FormatCount(SelectedStrike.Put.TopBidQuantity)}@{SelectedStrike.Put.TopBidPrice:N2} / A {CompactNumberFormatter.FormatCount(SelectedStrike.Put.TopAskQuantity)}@{SelectedStrike.Put.TopAskPrice:N2}";
 
     public string SelectedStrikeChartTitle => SelectedStrike is null
         ? "Selected Strike OI"
@@ -699,7 +699,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 await sessionStore.AppendAsync(
                     snapshot,
                     SelectedStrike,
-                    BuildMarketSignal(snapshot, SelectedStrike),
+                    BuildMarketSignal(snapshot),
                     CancellationToken.None);
                 fetched++;
             }
@@ -1062,6 +1062,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             reasons.Add("CE OI shift stronger");
         }
 
+        var depthPressure = AggregateDepthPressure(Snapshot);
+        if (depthPressure > 0)
+        {
+            score++;
+            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+        }
+        else if (depthPressure < 0)
+        {
+            score--;
+            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+        }
+
         if (Snapshot.Breadth.PutCallRatioOi >= 1.15m)
         {
             score++;
@@ -1128,8 +1140,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var breaksHigh = latest.Value >= priorHigh;
         var breaksLow = latest.Value <= priorLow;
         var oiShift = oiPoints.Count == 0 ? 0 : oiPoints.Last().Value - oiPoints.First().Value;
-        var bullishOptionConfirm = oiShift > 0 || snapshot.Breadth.PutCallRatioOi >= 1.05m;
-        var bearishOptionConfirm = oiShift < 0 || snapshot.Breadth.PutCallRatioOi <= 0.95m;
+        var depthPressure = AggregateDepthPressure(snapshot);
+        var bullishOptionConfirm = oiShift > 0 || snapshot.Breadth.PutCallRatioOi >= 1.05m || depthPressure > 0;
+        var bearishOptionConfirm = oiShift < 0 || snapshot.Breadth.PutCallRatioOi <= 0.95m || depthPressure < 0;
         var strongUp = move20 >= 150m || move10 >= 75m;
         var strongDown = move20 <= -150m || move10 <= -75m;
 
@@ -1137,7 +1150,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             return new SharpMovementViewModel(
                 move20 >= 150m ? "Sharp Bullish Expansion" : "Fast Bullish Break",
-                BuildSharpMovementDetail(move10, move20, "new session high", oiShift, snapshot.Breadth.PutCallRatioOi),
+                BuildSharpMovementDetail(move10, move20, "new session high", oiShift, depthPressure, snapshot.Breadth.PutCallRatioOi),
                 Brushes.MediumSeaGreen);
         }
 
@@ -1145,7 +1158,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             return new SharpMovementViewModel(
                 move20 <= -150m ? "Sharp Bearish Expansion" : "Fast Bearish Break",
-                BuildSharpMovementDetail(move10, move20, "new session low", oiShift, snapshot.Breadth.PutCallRatioOi),
+                BuildSharpMovementDetail(move10, move20, "new session low", oiShift, depthPressure, snapshot.Breadth.PutCallRatioOi),
                 Brushes.IndianRed);
         }
 
@@ -1167,6 +1180,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         decimal move20,
         string rangeBreak,
         decimal oiShift,
+        long depthPressure,
         decimal pcrOi)
     {
         var pressure = oiShift > 0
@@ -1175,7 +1189,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 ? "CE OI shift stronger"
                 : "OI balanced";
 
-        return $"10m {FormatSigned(move10)} | 20m {FormatSigned(move20)} | {rangeBreak} | {pressure} | PCR OI {pcrOi:N2}";
+        return $"10m {FormatSigned(move10)} | 20m {FormatSigned(move20)} | {rangeBreak} | {pressure} | depth {CompactNumberFormatter.FormatChange(depthPressure)} | PCR OI {pcrOi:N2}";
     }
 
     private void UpdateSessionReview(
@@ -1265,6 +1279,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         builder.AppendLine();
         builder.AppendLine("Replay Outcome");
         builder.AppendLine(ReplayOutcomeText);
+        builder.AppendLine();
+        builder.AppendLine("Signal");
+        builder.AppendLine(MarketSignalText);
+        builder.AppendLine(MarketSignalDetail);
         builder.AppendLine();
         builder.AppendLine("Current Reading");
         builder.AppendLine(MovementReadingTitle);
@@ -1429,70 +1447,80 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        var current = replayRecords[replayIndex];
-        var move5 = FutureMove(current, TimeSpan.FromMinutes(5));
-        var move15 = FutureMove(current, TimeSpan.FromMinutes(15));
-        var move30 = FutureMove(current, TimeSpan.FromMinutes(30));
-        var direction = ReadingDirection(MovementReadingTitle);
-        var primaryMove = move15 ?? move5 ?? move30;
-
-        if (primaryMove is null)
+        var snapshot = BuildReplaySnapshot(replayIndex);
+        var signal = BuildMarketSignal(snapshot);
+        if (!string.Equals(signal.Label, "BUY", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(signal.Label, "SELL", StringComparison.OrdinalIgnoreCase))
         {
-            ReplayOutcomeText = "Follow-through pending: not enough future replay data";
+            ReplayOutcomeText = $"WAIT -> no trade; {signal.Detail}";
+            ReplayOutcomeForeground = Brushes.Goldenrod;
+            return;
+        }
+
+        if (signal.Entry is null || signal.StopLoss is null || signal.Target is null)
+        {
+            ReplayOutcomeText = "Signal plan unavailable";
             ReplayOutcomeForeground = Brushes.LightSlateGray;
             return;
         }
 
-        var outcome = direction switch
+        var futureRecords = replayRecords
+            .Skip(replayIndex + 1)
+            .ToArray();
+        if (futureRecords.Length == 0)
         {
-            > 0 when primaryMove > 15 => "followed through",
-            > 0 when primaryMove < -15 => "failed",
-            < 0 when primaryMove < -15 => "followed through",
-            < 0 when primaryMove > 15 => "failed",
-            0 when Math.Abs(primaryMove.Value) <= 15 => "stayed flat",
-            0 => "broke out",
-            _ => "mixed"
+            ReplayOutcomeText = $"{signal.Label} @ {signal.Entry:N2} -> pending: no future replay data";
+            ReplayOutcomeForeground = Brushes.LightSlateGray;
+            return;
+        }
+
+        var targetIndex = signal.Label == "BUY"
+            ? FindIndex(futureRecords, record => record.Spot >= signal.Target.Value)
+            : FindIndex(futureRecords, record => record.Spot <= signal.Target.Value);
+        var stopIndex = signal.Label == "BUY"
+            ? FindIndex(futureRecords, record => record.Spot <= signal.StopLoss.Value)
+            : FindIndex(futureRecords, record => record.Spot >= signal.StopLoss.Value);
+
+        var outcome = targetIndex switch
+        {
+            >= 0 when stopIndex < 0 || targetIndex < stopIndex => "target hit",
+            _ when stopIndex >= 0 && (targetIndex < 0 || stopIndex < targetIndex) => "stoploss hit",
+            >= 0 when stopIndex == targetIndex => "target and stoploss touched together",
+            _ => "pending"
         };
 
         ReplayOutcomeForeground = outcome switch
         {
-            "followed through" or "stayed flat" => Brushes.MediumSeaGreen,
-            "failed" or "broke out" => Brushes.IndianRed,
-            _ => Brushes.Goldenrod
+            "target hit" => Brushes.MediumSeaGreen,
+            "stoploss hit" => Brushes.IndianRed,
+            "target and stoploss touched together" => Brushes.Goldenrod,
+            _ => Brushes.LightSlateGray
         };
+
+        var hitIndex = outcome == "target hit"
+            ? targetIndex
+            : outcome == "stoploss hit"
+                ? stopIndex
+                : -1;
+        var hitText = hitIndex >= 0
+            ? $" at {futureRecords[hitIndex].Timestamp.ToLocalTime():HH:mm:ss}"
+            : string.Empty;
+
         ReplayOutcomeText =
-            $"{MovementReadingTitle} -> {outcome}; 5m {FormatOptionalMove(move5)}, 15m {FormatOptionalMove(move15)}, 30m {FormatOptionalMove(move30)}";
+            $"{signal.Label} @ {signal.Entry:N2} SL {signal.StopLoss:N2} T1 {signal.Target:N2} -> {outcome}{hitText}";
     }
 
-    private decimal? FutureMove(MarketSessionRecord current, TimeSpan horizon)
+    private static int FindIndex<T>(IReadOnlyList<T> items, Func<T, bool> predicate)
     {
-        var targetTime = current.Timestamp + horizon;
-        var future = replayRecords
-            .Where(record => record.Timestamp >= targetTime)
-            .OrderBy(record => record.Timestamp)
-            .FirstOrDefault();
-
-        return future is null ? null : future.Spot - current.Spot;
-    }
-
-    private static int ReadingDirection(string title)
-    {
-        if (title.Contains("Bullish", StringComparison.OrdinalIgnoreCase))
+        for (var i = 0; i < items.Count; i++)
         {
-            return 1;
+            if (predicate(items[i]))
+            {
+                return i;
+            }
         }
 
-        if (title.Contains("Bearish", StringComparison.OrdinalIgnoreCase))
-        {
-            return -1;
-        }
-
-        return 0;
-    }
-
-    private static string FormatOptionalMove(decimal? value)
-    {
-        return value is null ? "--" : FormatSigned(value.Value);
+        return -1;
     }
 
     private MarketSnapshot BuildReplaySnapshot(int index)
@@ -1544,7 +1572,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 record.CallDelta,
                 0,
                 0,
-                0),
+                0,
+                record.CallTopBidPrice,
+                record.CallTopBidQuantity,
+                record.CallTopAskPrice,
+                record.CallTopAskQuantity),
             new OptionLegSnapshot(
                 record.PutLastPrice,
                 0,
@@ -1555,7 +1587,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 record.PutDelta,
                 0,
                 0,
-                0),
+                0,
+                record.PutTopBidPrice,
+                record.PutTopBidQuantity,
+                record.PutTopAskPrice,
+                record.PutTopAskQuantity),
             record.Support,
             record.Resistance);
     }
@@ -1744,12 +1780,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return new MarketSignalViewModel("Waiting", "Live snapshot not loaded", Brushes.LightSlateGray);
         }
 
-        return BuildMarketSignal(Snapshot, SelectedStrike);
+        return BuildMarketSignal(Snapshot);
     }
 
-    private static MarketSignalViewModel BuildMarketSignal(
-        MarketSnapshot snapshot,
-        OptionStrikeSnapshot? selectedStrike)
+    private static MarketSignalViewModel BuildMarketSignal(MarketSnapshot snapshot)
     {
         var score = 0;
         var reasons = new List<string>();
@@ -1788,39 +1822,90 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             reasons.Add("call buildup leads");
         }
 
-        var focusStrike = selectedStrike ?? snapshot.Strikes
-            .OrderBy(strike => Math.Abs(strike.Strike - snapshot.Spot))
-            .FirstOrDefault();
-        if (focusStrike is not null)
+        var depthPressure = AggregateDepthPressure(snapshot);
+        if (depthPressure > 0)
         {
-            var pressure = focusStrike.Put.OpenInterestChange - focusStrike.Call.OpenInterestChange;
-            if (pressure > 0)
-            {
-                score++;
-                reasons.Add($"{FormatNumber(focusStrike.Strike)} PE pressure");
-            }
-            else if (pressure < 0)
-            {
-                score--;
-                reasons.Add($"{FormatNumber(focusStrike.Strike)} CE pressure");
-            }
+            score++;
+            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
+        }
+        else if (depthPressure < 0)
+        {
+            score--;
+            reasons.Add($"depth {CompactNumberFormatter.FormatChange(depthPressure)}");
         }
 
-        var label = score >= 2
-            ? "Bullish Bias"
-            : score <= -2
-                ? "Bearish Bias"
-                : "Neutral / Mixed";
-        var foreground = score >= 2
+        var riskPoints = ResolveSignalRiskPoints(snapshot);
+        var label = score >= 3
+            ? "BUY"
+            : score <= -3
+                ? "SELL"
+                : "WAIT";
+        var foreground = score >= 3
             ? Brushes.MediumSeaGreen
-            : score <= -2
+            : score <= -3
                 ? Brushes.IndianRed
                 : Brushes.Goldenrod;
+        var entry = snapshot.Spot;
+        decimal? stopLoss = null;
+        decimal? target = null;
+        if (label == "BUY")
+        {
+            stopLoss = entry - riskPoints;
+            target = entry + riskPoints;
+        }
+        else if (label == "SELL")
+        {
+            stopLoss = entry + riskPoints;
+            target = entry - riskPoints;
+        }
+        var detail = label == "WAIT"
+            ? reasons.Count == 0 ? "No clear pressure yet" : string.Join(" | ", reasons.Take(4))
+            : $"Entry {entry:N2} | SL {stopLoss:N2} | T1 {target:N2} | {string.Join(" | ", reasons.Take(3))}";
 
         return new MarketSignalViewModel(
             label,
-            reasons.Count == 0 ? "No clear pressure yet" : string.Join(" | ", reasons.Take(3)),
-            foreground);
+            detail,
+            foreground,
+            entry,
+            stopLoss,
+            target,
+            riskPoints);
+    }
+
+    private static long AggregateDepthPressure(MarketSnapshot snapshot)
+    {
+        return snapshot.Strikes
+            .OrderBy(strike => Math.Abs(strike.Strike - snapshot.Spot))
+            .Take(3)
+            .Sum(strike => strike.Call.DepthImbalance - strike.Put.DepthImbalance);
+    }
+
+    private static decimal ResolveSignalRiskPoints(MarketSnapshot snapshot)
+    {
+        var strikeInterval = InferStrikeInterval(snapshot.Strikes);
+        var rawRisk = Math.Max(strikeInterval, snapshot.Spot * 0.002m);
+        var roundedRisk = decimal.Round(rawRisk / 5m, 0) * 5m;
+        return Math.Max(5m, roundedRisk);
+    }
+
+    private static decimal InferStrikeInterval(IReadOnlyList<OptionStrikeSnapshot> strikes)
+    {
+        var ordered = strikes
+            .Select(strike => strike.Strike)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        if (ordered.Length < 2)
+        {
+            return 50m;
+        }
+
+        return ordered
+            .Zip(ordered.Skip(1), (left, right) => right - left)
+            .Where(diff => diff > 0)
+            .DefaultIfEmpty(50m)
+            .Min();
     }
 
     private static void UpdatePath(PointCollection target, IReadOnlyList<ChartPoint> points, double width, double height)
@@ -2125,7 +2210,14 @@ public sealed class CatalogInstrumentViewModel : INotifyPropertyChanged
     }
 }
 
-public sealed record MarketSignalViewModel(string Label, string Detail, Brush Foreground);
+public sealed record MarketSignalViewModel(
+    string Label,
+    string Detail,
+    Brush Foreground,
+    decimal? Entry = null,
+    decimal? StopLoss = null,
+    decimal? Target = null,
+    decimal? RiskPoints = null);
 
 public sealed record MarketAlertViewModel(
     string TimeText,

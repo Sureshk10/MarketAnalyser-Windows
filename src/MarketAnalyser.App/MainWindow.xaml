@@ -281,7 +281,7 @@
                     <StackPanel>
                         <TextBlock Text="Signal" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock Text="{Binding MarketSignalText}" Style="{StaticResource MetricText}" Foreground="{Binding MarketSignalForeground}" FontSize="20" />
-                        <TextBlock Text="{Binding MarketSignalDetail}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding MarketSignalDetail}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="11" />
                     </StackPanel>
                 </Border>
             </UniformGrid>

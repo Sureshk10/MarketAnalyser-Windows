@@ -36,7 +36,22 @@ public sealed record OptionLegSnapshot(
     decimal Delta,
     decimal Gamma,
     decimal Theta,
-    decimal Vega);
+    decimal Vega,
+    decimal TopBidPrice = 0,
+    long TopBidQuantity = 0,
+    decimal TopAskPrice = 0,
+    long TopAskQuantity = 0)
+{
+    public long DepthImbalance => TopBidQuantity - TopAskQuantity;
+
+    public decimal MidPrice => TopBidPrice > 0 && TopAskPrice > 0
+        ? decimal.Round((TopBidPrice + TopAskPrice) / 2m, 2)
+        : LastPrice;
+
+    public decimal Spread => TopBidPrice > 0 && TopAskPrice > 0
+        ? decimal.Round(TopAskPrice - TopBidPrice, 2)
+        : 0;
+}
 
 public sealed record OptionStrikeSnapshot(
     decimal Strike,
