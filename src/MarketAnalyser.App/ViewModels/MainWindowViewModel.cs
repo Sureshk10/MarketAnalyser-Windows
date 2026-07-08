@@ -385,6 +385,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(LastUpdatedText));
                 OnPropertyChanged(nameof(MarketSignalText));
                 OnPropertyChanged(nameof(MarketSignalDetail));
+                OnPropertyChanged(nameof(MarketDepthInfluenceText));
                 OnPropertyChanged(nameof(MarketSignalForeground));
             }
         }
@@ -566,6 +567,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string MarketSignalText => BuildMarketSignal().Label;
 
     public string MarketSignalDetail => BuildMarketSignal().Detail;
+
+    public string MarketDepthInfluenceText => Snapshot is null ? "--" : DescribeDepthPressure(Snapshot);
 
     public Brush MarketSignalForeground => BuildMarketSignal().Foreground;
 

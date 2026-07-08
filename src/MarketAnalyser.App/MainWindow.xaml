@@ -51,6 +51,36 @@
             <Setter Property="Padding" Value="6,4" />
         </Style>
 
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+            <Setter Property="Padding" Value="6,4" />
+        </Style>
+
+        <Style TargetType="DatePicker">
+            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="Padding" Value="6,4" />
+        </Style>
+
+        <Style TargetType="DatePickerTextBox">
+            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+
+        <Style TargetType="Calendar">
+            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+        </Style>
+
+        <Style TargetType="CalendarDayButton">
+            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+        </Style>
+
         <Style x:Key="StarButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -282,6 +312,7 @@
                         <TextBlock Text="Signal" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock Text="{Binding MarketSignalText}" Style="{StaticResource MetricText}" Foreground="{Binding MarketSignalForeground}" FontSize="20" />
                         <TextBlock Text="{Binding MarketSignalDetail}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="11" />
+                        <TextBlock Text="{Binding MarketDepthInfluenceText}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0" />
                     </StackPanel>
                 </Border>
             </UniformGrid>
@@ -465,48 +496,38 @@
                         <Button Grid.Column="1" Content="Export" Command="{Binding ExportSessionReviewCommand}" Padding="10,2" />
                     </Grid>
                     <StackPanel>
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="64" />
-                                <ColumnDefinition Width="16" />
-                                <ColumnDefinition Width="64" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <DatePicker SelectedDate="{Binding ReplaySelectedDate, Mode=TwoWay}" />
-                            <ComboBox Grid.Column="1"
-                                      ItemsSource="{Binding ReplayHourOptions}"
+                        <WrapPanel Margin="0,0,0,8" VerticalAlignment="Top">
+                            <DatePicker SelectedDate="{Binding ReplaySelectedDate, Mode=TwoWay}" Width="124" Margin="0,0,6,6" />
+                            <ComboBox ItemsSource="{Binding ReplayHourOptions}"
                                       SelectedItem="{Binding ReplaySelectedHour, Mode=TwoWay}"
-                                      Width="60">
+                                      Width="60"
+                                      Margin="0,0,6,6">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding StringFormat={}{0:00}}" />
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
-                            <TextBlock Grid.Column="2"
-                                       Text=":"
+                            <TextBlock Text=":"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        VerticalAlignment="Center"
-                                       HorizontalAlignment="Center" />
-                            <ComboBox Grid.Column="3"
-                                      ItemsSource="{Binding ReplayMinuteOptions}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,0,6,6" />
+                            <ComboBox ItemsSource="{Binding ReplayMinuteOptions}"
                                       SelectedItem="{Binding ReplaySelectedMinute, Mode=TwoWay}"
-                                      Width="60">
+                                      Width="60"
+                                      Margin="0,0,6,6">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding StringFormat={}{0:00}}" />
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
-                            <Button Grid.Column="4" Content="Load" Command="{Binding LoadReplayCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="5" Content="Step" Command="{Binding ReplayStepCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="6" Content="{Binding ReplayPlayPauseText}" Command="{Binding ReplayPlayPauseCommand}" Padding="8,2" Margin="6,0,0,0" />
-                            <Button Grid.Column="7" Content="Live" Command="{Binding ResumeLiveCommand}" Padding="8,2" Margin="6,0,0,0" HorizontalAlignment="Left" />
-                        </Grid>
+                            <Button Content="Load" Command="{Binding LoadReplayCommand}" Padding="8,2" Margin="0,0,6,6" />
+                            <Button Content="Step" Command="{Binding ReplayStepCommand}" Padding="8,2" Margin="0,0,6,6" />
+                            <Button Content="{Binding ReplayPlayPauseText}" Command="{Binding ReplayPlayPauseCommand}" Padding="8,2" Margin="0,0,6,6" />
+                            <Button Content="Live" Command="{Binding ResumeLiveCommand}" Padding="8,2" Margin="0,0,0,6" />
+                        </WrapPanel>
                         <TextBlock Text="{Binding ReplayStatusText}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding SessionReviewSummaryText}" TextWrapping="Wrap" Foreground="#D8E1EC" />
                         <TextBlock Text="{Binding SessionReviewPhasesText}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0" />
