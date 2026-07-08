@@ -228,10 +228,7 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             .OrderBy(strike => strike.Strike)
             .ToList();
 
-        var atm = Math.Round(spot / instrument.StrikeInterval) * instrument.StrikeInterval;
-        var displayStrikes = strikes
-            .Where(strike => Math.Abs(strike.Strike - atm) <= instrument.StrikeInterval * 10)
-            .ToList();
+        var displayStrikes = SelectDisplayStrikes(strikes, spot, instrument);
 
         var totalCallOiChange = strikes.Sum(strike => strike.Call.OpenInterestChange);
         var totalPutOiChange = strikes.Sum(strike => strike.Put.OpenInterestChange);
@@ -290,6 +287,46 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             ToSnapshot(optionStrike.Put),
             Support: strike - strikeInterval * 0.8m,
             Resistance: strike + strikeInterval * 0.8m);
+    }
+
+    private static IReadOnlyList<OptionStrikeSnapshot> SelectDisplayStrikes(
+        IReadOnlyList<OptionStrikeSnapshot> strikes,
+        decimal spot,
+        InstrumentSummary instrument)
+    {
+        if (strikes.Count == 0)
+        {
+            return [];
+        }
+
+        var atm = Math.Round(spot / instrument.StrikeInterval) * instrument.StrikeInterval;
+        var ordered = strikes.OrderBy(strike => strike.Strike).ToList();
+        var atmIndex = ordered
+            .Select((strike, index) => new { strike, index, distance = Math.Abs(strike.Strike - atm) })
+            .OrderBy(item => item.distance)
+            .ThenBy(item => item.strike.Strike)
+            .First()
+            .index;
+
+        var sideWindow = instrument.Segment == MarketSegment.Commodity ? 20 : 12;
+        var start = Math.Max(0, atmIndex - sideWindow);
+        var end = Math.Min(ordered.Count - 1, atmIndex + sideWindow);
+        var desiredCount = sideWindow * 2 + 1;
+
+        while (end - start + 1 < desiredCount && (start > 0 || end < ordered.Count - 1))
+        {
+            if (start > 0)
+            {
+                start--;
+            }
+
+            if (end - start + 1 < desiredCount && end < ordered.Count - 1)
+            {
+                end++;
+            }
+        }
+
+        return ordered.Skip(start).Take(end - start + 1).ToList();
     }
 
     private static IEnumerable<OptionInstrumentRef> CreateInstrumentRefs(
