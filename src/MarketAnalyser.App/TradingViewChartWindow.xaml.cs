@@ -1,5 +1,3 @@
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -61,26 +59,12 @@ public partial class TradingViewChartWindow : Window
             isWebViewReady = true;
         }
 
-        if (RequiresFullTradingViewPage())
-        {
-            ChartWebView.CoreWebView2.Navigate(BuildTradingViewUrl(CurrentInterval()));
-            return;
-        }
-
-        ChartWebView.NavigateToString(BuildTradingViewHtml(CurrentInterval()));
+        ChartWebView.CoreWebView2.Navigate(BuildTradingViewUrl(CurrentInterval()));
     }
 
     private string CurrentInterval()
     {
         return (IntervalCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "1";
-    }
-
-    private bool RequiresFullTradingViewPage()
-    {
-        return tradingViewSymbol.Equals("NSE:NIFTY", StringComparison.OrdinalIgnoreCase) ||
-            tradingViewSymbol.Equals("NSE:BANKNIFTY", StringComparison.OrdinalIgnoreCase) ||
-            tradingViewSymbol.Equals("NSE:CNXFINANCE", StringComparison.OrdinalIgnoreCase) ||
-            tradingViewSymbol.Equals("BSE:SENSEX", StringComparison.OrdinalIgnoreCase);
     }
 
     private string BuildTradingViewUrl(string interval)
@@ -89,62 +73,4 @@ public partial class TradingViewChartWindow : Window
         var chartInterval = Uri.EscapeDataString(interval);
         return $"https://www.tradingview.com/chart/?symbol={symbol}&interval={chartInterval}";
     }
-
-    private string BuildTradingViewHtml(string interval)
-    {
-        var symbol = JsonSerializer.Serialize(tradingViewSymbol, JsonOptions);
-        var chartInterval = JsonSerializer.Serialize(interval, JsonOptions);
-
-        return $$"""
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body, #chart { height: 100%; margin: 0; background: #0b1118; overflow: hidden; }
-  </style>
-</head>
-<body>
-  <div id="chart"></div>
-  <script src="https://s3.tradingview.com/tv.js"></script>
-  <script>
-    new TradingView.widget({
-      autosize: true,
-      symbol: {{symbol}},
-      interval: {{chartInterval}},
-      timezone: "Asia/Kolkata",
-      theme: "dark",
-      style: "1",
-      locale: "en",
-      toolbar_bg: "#111A24",
-      enable_publishing: false,
-      allow_symbol_change: true,
-      withdateranges: true,
-      hide_side_toolbar: false,
-      details: true,
-      hotlist: false,
-      calendar: false,
-      container_id: "chart",
-      studies: [
-        "STD;VWAP",
-        "STD;Supertrend",
-        "STD;EMA",
-        "STD;RSI",
-        "STD;MACD"
-      ],
-      studies_overrides: {
-        "moving average exponential.length": 20
-      }
-    });
-  </script>
-</body>
-</html>
-""";
-    }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
 }

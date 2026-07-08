@@ -1404,13 +1404,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private static string MapToTradingViewSymbol(CatalogInstrumentViewModel instrument)
     {
         var symbol = instrument.Symbol.Trim().ToUpperInvariant();
+        if (symbol.Contains(':'))
+        {
+            return symbol;
+        }
+
         return symbol switch
         {
             "NIFTY" or "NIFTY 50" => "NSE:NIFTY",
             "BANKNIFTY" or "NIFTY BANK" => "NSE:BANKNIFTY",
             "FINNIFTY" => "NSE:CNXFINANCE",
             "SENSEX" => "BSE:SENSEX",
-            _ when instrument.Source.Segment == MarketSegment.Commodity => symbol,
+            _ when instrument.Source.Segment == MarketSegment.Commodity => $"MCX:{symbol}",
             _ => $"NSE:{symbol}"
         };
     }
@@ -2014,7 +2019,9 @@ internal static class CompactNumberFormatter
             ? $"{abs / 10_000_000m:N1}Cr"
             : abs >= 100_000
                 ? $"{abs / 100_000m:N1}L"
-                : abs.ToString("N0", CultureInfo.CurrentCulture);
+                : abs >= 1_000
+                    ? $"{abs / 1_000m:N1}k"
+                    : abs.ToString("N0", CultureInfo.CurrentCulture);
 
         if (value < 0)
         {
