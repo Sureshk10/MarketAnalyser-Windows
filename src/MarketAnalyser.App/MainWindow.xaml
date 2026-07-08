@@ -60,6 +60,15 @@
             <Setter Property="Cursor" Value="Hand" />
         </Style>
 
+        <Style x:Key="SmallChromeButton" TargetType="Button">
+            <Setter Property="Background" Value="#172231" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
         <Style TargetType="DataGrid">
             <Setter Property="Background" Value="#101720" />
             <Setter Property="Foreground" Value="#D8E1EC" />
@@ -153,21 +162,19 @@
 
     <Grid Margin="18">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="{Binding LeftPanelColumnWidth}" />
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="380" />
+            <ColumnDefinition Width="{Binding RightPanelColumnWidth}" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Style="{StaticResource PanelStyle}" Margin="0,0,14,0">
+        <Border Grid.Column="0" Style="{StaticResource PanelStyle}" Margin="0,0,14,0" Visibility="{Binding LeftPanelVisibility}">
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                     <TextBlock Text="Market Analyser" FontSize="22" FontWeight="SemiBold" Foreground="White" />
                     <TextBlock Text="NIFT-AI workspace" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
                     <TextBox Text="{Binding InstrumentSearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Margin="0,16,0,8"
+                             Margin="0,16,0,0"
                              ToolTip="Search symbol or name" />
-                    <ComboBox ItemsSource="{Binding CatalogFilters}"
-                              SelectedItem="{Binding SelectedCatalogFilter, Mode=TwoWay}" />
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
@@ -214,7 +221,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="220" />
+                <RowDefinition Height="{Binding AlertsRowHeight}" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -225,6 +232,17 @@
                     <TextBlock Text="{Binding SessionStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+                        <Button Style="{StaticResource SmallChromeButton}"
+                                Content="{Binding LeftPanelToggleText}"
+                                Command="{Binding ToggleLeftPanelCommand}" />
+                        <Button Style="{StaticResource SmallChromeButton}"
+                                Content="{Binding AlertsPanelToggleText}"
+                                Command="{Binding ToggleAlertsPanelCommand}" />
+                        <Button Style="{StaticResource SmallChromeButton}"
+                                Content="{Binding RightPanelToggleText}"
+                                Command="{Binding ToggleRightPanelCommand}" />
+                    </StackPanel>
                     <TextBlock Text="Last update" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
                     <TextBlock Text="{Binding LastUpdatedText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Right" />
                 </StackPanel>
@@ -268,7 +286,7 @@
                 </Border>
             </UniformGrid>
 
-            <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
+            <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14" Visibility="{Binding AlertsPanelVisibility}">
                 <DockPanel LastChildFill="True">
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
@@ -372,7 +390,7 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Column="2" Margin="14,0,0,0">
+        <Grid Grid.Column="2" Margin="14,0,0,0" Visibility="{Binding RightPanelVisibility}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="200" />
                 <RowDefinition Height="130" />

@@ -31,3 +31,4 @@ appsettings.*.json
 # OS files
 Thumbs.db
 Desktop.ini
+/src/MarketAnalyser.App/appsettings.json

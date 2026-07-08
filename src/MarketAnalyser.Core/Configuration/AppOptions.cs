@@ -14,6 +14,14 @@ public sealed class AppOptions
 
     public static AppOptions Load(string path)
     {
+        var localPath = Path.Combine(
+            Path.GetDirectoryName(path) ?? string.Empty,
+            $"{Path.GetFileNameWithoutExtension(path)}.local.json");
+        return File.Exists(localPath) ? LoadFile(localPath) : LoadFile(path);
+    }
+
+    private static AppOptions LoadFile(string path)
+    {
         if (!File.Exists(path))
         {
             return new AppOptions();

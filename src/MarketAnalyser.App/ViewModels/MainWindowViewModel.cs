@@ -62,6 +62,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private bool isReplayMode;
     private bool isReplayPlaying;
     private string replayStatusText = "Replay not loaded";
+    private bool isLeftPanelVisible = true;
+    private bool isRightPanelVisible = true;
+    private bool isAlertsPanelVisible = true;
 
     public MainWindowViewModel(
         IMarketDataSource marketDataSource,
@@ -84,6 +87,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ReplayPlayPauseCommand = new RelayCommand<object>(_ => ToggleReplayPlayback());
         ResumeLiveCommand = new RelayCommand<object>(_ => ResumeLive());
         OpenTradingViewChartCommand = new RelayCommand<object>(_ => OpenTradingViewChart());
+        ToggleLeftPanelCommand = new RelayCommand<object>(_ => IsLeftPanelVisible = !IsLeftPanelVisible);
+        ToggleRightPanelCommand = new RelayCommand<object>(_ => IsRightPanelVisible = !IsRightPanelVisible);
+        ToggleAlertsPanelCommand = new RelayCommand<object>(_ => IsAlertsPanelVisible = !IsAlertsPanelVisible);
         refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         refreshTimer.Tick += async (_, _) => await RefreshAsync();
         replayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
@@ -131,6 +137,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public ICommand OpenTradingViewChartCommand { get; }
 
+    public ICommand ToggleLeftPanelCommand { get; }
+
+    public ICommand ToggleRightPanelCommand { get; }
+
+    public ICommand ToggleAlertsPanelCommand { get; }
+
     public string Status
     {
         get => status;
@@ -148,6 +160,66 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => isBusy;
         private set => SetField(ref isBusy, value);
     }
+
+    public bool IsLeftPanelVisible
+    {
+        get => isLeftPanelVisible;
+        set
+        {
+            if (SetField(ref isLeftPanelVisible, value))
+            {
+                OnPropertyChanged(nameof(LeftPanelColumnWidth));
+                OnPropertyChanged(nameof(LeftPanelVisibility));
+                OnPropertyChanged(nameof(LeftPanelToggleText));
+            }
+        }
+    }
+
+    public bool IsRightPanelVisible
+    {
+        get => isRightPanelVisible;
+        set
+        {
+            if (SetField(ref isRightPanelVisible, value))
+            {
+                OnPropertyChanged(nameof(RightPanelColumnWidth));
+                OnPropertyChanged(nameof(RightPanelVisibility));
+                OnPropertyChanged(nameof(RightPanelToggleText));
+            }
+        }
+    }
+
+    public bool IsAlertsPanelVisible
+    {
+        get => isAlertsPanelVisible;
+        set
+        {
+            if (SetField(ref isAlertsPanelVisible, value))
+            {
+                OnPropertyChanged(nameof(AlertsRowHeight));
+                OnPropertyChanged(nameof(AlertsPanelVisibility));
+                OnPropertyChanged(nameof(AlertsPanelToggleText));
+            }
+        }
+    }
+
+    public GridLength LeftPanelColumnWidth => IsLeftPanelVisible ? new GridLength(240) : new GridLength(0);
+
+    public GridLength RightPanelColumnWidth => IsRightPanelVisible ? new GridLength(380) : new GridLength(0);
+
+    public GridLength AlertsRowHeight => IsAlertsPanelVisible ? new GridLength(220) : new GridLength(0);
+
+    public Visibility LeftPanelVisibility => IsLeftPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility RightPanelVisibility => IsRightPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility AlertsPanelVisibility => IsAlertsPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+
+    public string LeftPanelToggleText => IsLeftPanelVisible ? "Hide Left" : "Show Left";
+
+    public string RightPanelToggleText => IsRightPanelVisible ? "Hide Right" : "Show Right";
+
+    public string AlertsPanelToggleText => IsAlertsPanelVisible ? "Hide Alerts" : "Show Alerts";
 
     public string InstrumentSearchText
     {
