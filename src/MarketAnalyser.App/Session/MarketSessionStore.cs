@@ -1,0 +1,289 @@
+using System.Globalization;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using MarketAnalyser.App.ViewModels;
+using MarketAnalyser.Core.Market;
+
+namespace MarketAnalyser.App.Session;
+
+public sealed class MarketSessionStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private readonly string rootDirectory;
+
+    public MarketSessionStore()
+    {
+        rootDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarketAnalyser",
+            "sessions");
+    }
+
+    public async Task<int> CountRecordsAsync(string symbol, DateOnly date, CancellationToken cancellationToken)
+    {
+        var path = GetSessionPath(symbol, date);
+        if (!File.Exists(path))
+        {
+            return 0;
+        }
+
+        var count = 0;
+        await foreach (var _ in File.ReadLinesAsync(path, cancellationToken))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    public async Task<MarketSessionBackfill> LoadBackfillAsync(
+        string symbol,
+        DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        var records = await LoadRecordsAsync(symbol, date, cancellationToken);
+
+        if (records.Count == 0)
+        {
+            return MarketSessionBackfill.Empty(symbol);
+        }
+
+        var ordered = records
+            .OrderBy(record => record.Timestamp)
+            .ToArray();
+        var priceSeries = ordered
+            .Select(record => new ChartPoint(record.Timestamp, record.Spot))
+            .ToArray();
+        var oiChangeSeries = ordered
+            .Select(record => new ChartPoint(record.Timestamp, record.Strikes.Sum(strike => strike.PutOpenInterestChange - strike.CallOpenInterestChange)))
+            .ToArray();
+
+        return new MarketSessionBackfill(
+            symbol,
+            ordered.Length,
+            ordered.First().Timestamp,
+            ordered.Last().Timestamp,
+            DetectMissingRanges(ordered, date),
+            priceSeries,
+            oiChangeSeries);
+    }
+
+    public async Task<IReadOnlyList<MarketSessionRecord>> LoadRecordsAsync(
+        string symbol,
+        DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        var path = GetSessionPath(symbol, date);
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+
+        var records = new List<MarketSessionRecord>();
+        await foreach (var line in File.ReadLinesAsync(path, cancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                var record = JsonSerializer.Deserialize<MarketSessionRecord>(line, JsonOptions);
+                if (record is not null)
+                {
+                    records.Add(record);
+                }
+            }
+            catch (JsonException ex)
+            {
+                AppExceptionLogger.Log(ex);
+            }
+        }
+
+        return records
+            .OrderBy(record => record.Timestamp)
+            .ToArray();
+    }
+
+    public async Task AppendAsync(
+        MarketSnapshot snapshot,
+        OptionStrikeSnapshot? selectedStrike,
+        MarketSignalViewModel signal,
+        CancellationToken cancellationToken)
+    {
+        var record = MarketSessionRecord.FromSnapshot(snapshot, selectedStrike, signal);
+        var path = GetSessionPath(snapshot.Symbol, DateOnly.FromDateTime(snapshot.Timestamp.ToLocalTime().DateTime));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var json = JsonSerializer.Serialize(record, JsonOptions);
+        await File.AppendAllTextAsync(path, json + Environment.NewLine, cancellationToken);
+    }
+
+    public string GetSessionPath(string symbol, DateOnly date)
+    {
+        var safeSymbol = string.Concat(symbol.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+        var dateFolder = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return Path.Combine(rootDirectory, dateFolder, $"{safeSymbol}.jsonl");
+    }
+
+    private static IReadOnlyList<MarketSessionMissingRange> DetectMissingRanges(
+        IReadOnlyList<MarketSessionRecord> records,
+        DateOnly date)
+    {
+        var ranges = new List<MarketSessionMissingRange>();
+        var marketOpen = new DateTimeOffset(date.ToDateTime(new TimeOnly(9, 15)), TimeZoneInfo.Local.GetUtcOffset(DateTime.Now));
+        var marketClose = new DateTimeOffset(date.ToDateTime(new TimeOnly(15, 30)), TimeZoneInfo.Local.GetUtcOffset(DateTime.Now));
+        var now = DateTimeOffset.Now;
+        var expectedEnd = now < marketClose ? now : marketClose;
+        var maxAllowedGap = TimeSpan.FromMinutes(2);
+
+        if (expectedEnd <= marketOpen)
+        {
+            return ranges;
+        }
+
+        var ordered = records.OrderBy(record => record.Timestamp).ToArray();
+        if (ordered.Length == 0)
+        {
+            ranges.Add(new MarketSessionMissingRange(marketOpen, expectedEnd));
+            return ranges;
+        }
+
+        if (ordered.First().Timestamp - marketOpen > maxAllowedGap)
+        {
+            ranges.Add(new MarketSessionMissingRange(marketOpen, ordered.First().Timestamp));
+        }
+
+        for (var i = 1; i < ordered.Length; i++)
+        {
+            var previous = ordered[i - 1].Timestamp;
+            var current = ordered[i].Timestamp;
+            if (current - previous > maxAllowedGap)
+            {
+                ranges.Add(new MarketSessionMissingRange(previous, current));
+            }
+        }
+
+        if (expectedEnd - ordered.Last().Timestamp > maxAllowedGap)
+        {
+            ranges.Add(new MarketSessionMissingRange(ordered.Last().Timestamp, expectedEnd));
+        }
+
+        return ranges;
+    }
+}
+
+public sealed record MarketSessionBackfill(
+    string Symbol,
+    int RecordCount,
+    DateTimeOffset? FirstTimestamp,
+    DateTimeOffset? LastTimestamp,
+    IReadOnlyList<MarketSessionMissingRange> MissingRanges,
+    IReadOnlyList<ChartPoint> PriceSeries,
+    IReadOnlyList<ChartPoint> OiChangeSeries)
+{
+    public static MarketSessionBackfill Empty(string symbol)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        return new MarketSessionBackfill(symbol, 0, null, null, DetectEmptyMissingRange(today), [], []);
+    }
+
+    private static IReadOnlyList<MarketSessionMissingRange> DetectEmptyMissingRange(DateOnly date)
+    {
+        var marketOpen = new DateTimeOffset(date.ToDateTime(new TimeOnly(9, 15)), TimeZoneInfo.Local.GetUtcOffset(DateTime.Now));
+        var marketClose = new DateTimeOffset(date.ToDateTime(new TimeOnly(15, 30)), TimeZoneInfo.Local.GetUtcOffset(DateTime.Now));
+        var now = DateTimeOffset.Now;
+        var expectedEnd = now < marketClose ? now : marketClose;
+
+        return expectedEnd > marketOpen
+            ? [new MarketSessionMissingRange(marketOpen, expectedEnd)]
+            : [];
+    }
+}
+
+public sealed record MarketSessionMissingRange(DateTimeOffset From, DateTimeOffset To)
+{
+    public TimeSpan Duration => To - From;
+}
+
+public sealed record MarketSessionRecord(
+    string Symbol,
+    DateTimeOffset Timestamp,
+    decimal Spot,
+    decimal SpotChange,
+    decimal PutCallRatioOi,
+    decimal PutCallRatioVolume,
+    decimal CeVolumeShare,
+    decimal PeVolumeShare,
+    long TotalCallOi,
+    long TotalPutOi,
+    long TotalCallVolume,
+    long TotalPutVolume,
+    decimal? SelectedStrike,
+    string Signal,
+    string SignalDetail,
+    IReadOnlyList<MarketSessionStrikeRecord> Strikes)
+{
+    public static MarketSessionRecord FromSnapshot(
+        MarketSnapshot snapshot,
+        OptionStrikeSnapshot? selectedStrike,
+        MarketSignalViewModel signal)
+    {
+        return new MarketSessionRecord(
+            snapshot.Symbol,
+            snapshot.Timestamp,
+            snapshot.Spot,
+            snapshot.SpotChange,
+            snapshot.Breadth.PutCallRatioOi,
+            snapshot.Breadth.PutCallRatioVolume,
+            snapshot.Breadth.CeVolumeShare,
+            snapshot.Breadth.PeVolumeShare,
+            snapshot.Breadth.TotalCallOi,
+            snapshot.Breadth.TotalPutOi,
+            snapshot.Breadth.TotalCallVolume,
+            snapshot.Breadth.TotalPutVolume,
+            selectedStrike?.Strike,
+            signal.Label,
+            signal.Detail,
+            snapshot.Strikes.Select(MarketSessionStrikeRecord.FromStrike).ToArray());
+    }
+}
+
+public sealed record MarketSessionStrikeRecord(
+    decimal Strike,
+    decimal CallLastPrice,
+    long CallOpenInterest,
+    long CallOpenInterestChange,
+    decimal CallImpliedVolatility,
+    decimal CallDelta,
+    decimal PutLastPrice,
+    long PutOpenInterest,
+    long PutOpenInterestChange,
+    decimal PutImpliedVolatility,
+    decimal PutDelta,
+    decimal Support,
+    decimal Resistance)
+{
+    public static MarketSessionStrikeRecord FromStrike(OptionStrikeSnapshot strike)
+    {
+        return new MarketSessionStrikeRecord(
+            strike.Strike,
+            strike.Call.LastPrice,
+            strike.Call.OpenInterest,
+            strike.Call.OpenInterestChange,
+            strike.Call.ImpliedVolatility,
+            strike.Call.Delta,
+            strike.Put.LastPrice,
+            strike.Put.OpenInterest,
+            strike.Put.OpenInterestChange,
+            strike.Put.ImpliedVolatility,
+            strike.Put.Delta,
+            strike.Support,
+            strike.Resistance);
+    }
+}

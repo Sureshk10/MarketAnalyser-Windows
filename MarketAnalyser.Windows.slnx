@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MarketAnalyser.App/MarketAnalyser.App.csproj" />
+    <Project Path="src/MarketAnalyser.Core/MarketAnalyser.Core.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,33 @@
+# Build output
+bin/
+obj/
+publish/
+
+# IDE and local workspace state
+.vs/
+.vscode/
+.idea/
+.agents/
+.codex/
+.tmp/
+
+# Local settings and credentials
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+!appsettings.*.example.json
+
+# Local databases and logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# User/session artifacts
+*.user
+*.suo
+*.cache
+
+# OS files
+Thumbs.db
+Desktop.ini
