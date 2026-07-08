@@ -55,17 +55,129 @@
             <Setter Property="Background" Value="#101720" />
             <Setter Property="Foreground" Value="#D8E1EC" />
             <Setter Property="Padding" Value="6,4" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              ContentStringFormat="{TemplateBinding ContentStringFormat}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#1D2A38" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#203140" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#6F7F91" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DarkTimeComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid SnapsToDevicePixels="True">
+                            <ToggleButton x:Name="ToggleButton"
+                                          Focusable="False"
+                                          ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="0"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          Padding="{TemplateBinding Padding}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="ToggleBorder"
+                                                Background="{Binding Background, RelativeSource={RelativeSource TemplatedParent}}"
+                                                BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"
+                                                BorderThickness="1"
+                                                CornerRadius="4">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="22" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"
+                                                           Text="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=ComboBox}, StringFormat={}{0:00}}" />
+                                                <Path Grid.Column="1"
+                                                      Width="8"
+                                                      Height="4"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"
+                                                      Data="M 0 0 L 4 4 L 8 0 Z" />
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="#4A5B70" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="ToggleBorder" Property="Background" Value="#172231" />
+                                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="#4A5B70" />
+                                            </Trigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter TargetName="ToggleBorder" Property="Opacity" Value="0.55" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup x:Name="Popup"
+                                   PlacementTarget="{Binding ElementName=ToggleButton}"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade"
+                                   StaysOpen="False">
+                                <Border Background="#101720"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4">
+                                    <ScrollViewer CanContentScroll="True"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  SnapsToDevicePixels="True">
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="DatePicker">
-            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Background" Value="Black" />
             <Setter Property="Foreground" Value="#D8E1EC" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="Padding" Value="6,4" />
         </Style>
 
         <Style TargetType="DatePickerTextBox">
-            <Setter Property="Background" Value="#101720" />
+            <Setter Property="Background" Value="Black" />
             <Setter Property="Foreground" Value="#D8E1EC" />
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
             <Setter Property="Padding" Value="2" />
@@ -272,6 +384,9 @@
                         <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding RightPanelToggleText}"
                                 Command="{Binding ToggleRightPanelCommand}" />
+                        <Button Style="{StaticResource SmallChromeButton}"
+                                Content="{Binding SessionReviewPanelToggleText}"
+                                Command="{Binding ToggleSessionReviewPanelCommand}" />
                     </StackPanel>
                     <TextBlock Text="Last update" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
                     <TextBlock Text="{Binding LastUpdatedText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Right" />
@@ -402,7 +517,8 @@
                     <TextBlock DockPanel.Dock="Top" Text="Live Option Chain" FontSize="18" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,12" />
                     <DataGrid ItemsSource="{Binding StrikeRows}"
                               SelectedItem="{Binding SelectedStrikeRow, Mode=TwoWay}"
-                              RowStyle="{StaticResource OptionRowStyle}">
+                              RowStyle="{StaticResource OptionRowStyle}"
+                              MouseLeftButtonUp="StrikeRowsGrid_MouseLeftButtonUp">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="" Binding="{Binding AtmLabel}" Width="48" />
                             <DataGridTextColumn Header="CE IV" Binding="{Binding Snapshot.Call.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
@@ -427,8 +543,8 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="200" />
                 <RowDefinition Height="130" />
-                <RowDefinition Height="170" />
-                <RowDefinition Height="135" />
+                <RowDefinition Height="{Binding SessionReviewRowHeight}" />
+                <RowDefinition Height="{Binding LiveScanRowHeight}" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -482,7 +598,7 @@
                 </StackPanel>
             </Border>
 
-            <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
+            <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14" Visibility="{Binding SessionReviewVisibility}">
                 <DockPanel LastChildFill="True">
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
@@ -497,11 +613,26 @@
                     </Grid>
                     <StackPanel>
                         <WrapPanel Margin="0,0,0,8" VerticalAlignment="Top">
-                            <DatePicker SelectedDate="{Binding ReplaySelectedDate, Mode=TwoWay}" Width="124" Margin="0,0,6,6" />
+                            <DatePicker SelectedDate="{Binding ReplaySelectedDate, Mode=TwoWay}"
+                                        Width="124"
+                                        Margin="0,0,6,6"
+                                        Background="Black"
+                                        Foreground="White" />
                             <ComboBox ItemsSource="{Binding ReplayHourOptions}"
                                       SelectedItem="{Binding ReplaySelectedHour, Mode=TwoWay}"
                                       Width="60"
-                                      Margin="0,0,6,6">
+                                      Margin="0,0,6,6"
+                                      Background="Black"
+                                      Foreground="White"
+                                      Style="{StaticResource DarkTimeComboBoxStyle}">
+                                <ComboBox.Resources>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#1D2A38" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#101720" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#D8E1EC" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#101720" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#D8E1EC" />
+                                </ComboBox.Resources>
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding StringFormat={}{0:00}}" />
@@ -516,7 +647,18 @@
                             <ComboBox ItemsSource="{Binding ReplayMinuteOptions}"
                                       SelectedItem="{Binding ReplaySelectedMinute, Mode=TwoWay}"
                                       Width="60"
-                                      Margin="0,0,6,6">
+                                      Margin="0,0,6,6"
+                                      Background="Black"
+                                      Foreground="White"
+                                      Style="{StaticResource DarkTimeComboBoxStyle}">
+                                <ComboBox.Resources>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#1D2A38" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#101720" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#D8E1EC" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#101720" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#D8E1EC" />
+                                </ComboBox.Resources>
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding StringFormat={}{0:00}}" />
@@ -527,6 +669,7 @@
                             <Button Content="Step" Command="{Binding ReplayStepCommand}" Padding="8,2" Margin="0,0,6,6" />
                             <Button Content="{Binding ReplayPlayPauseText}" Command="{Binding ReplayPlayPauseCommand}" Padding="8,2" Margin="0,0,6,6" />
                             <Button Content="Live" Command="{Binding ResumeLiveCommand}" Padding="8,2" Margin="0,0,0,6" />
+                            <Button Content="Summary" Command="{Binding ReplaySummaryCommand}" Padding="8,2" Margin="6,0,0,6" />
                         </WrapPanel>
                         <TextBlock Text="{Binding ReplayStatusText}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,0,0,6" />
                         <TextBlock Text="{Binding SessionReviewSummaryText}" TextWrapping="Wrap" Foreground="#D8E1EC" />
@@ -539,11 +682,53 @@
             </Border>
 
             <Border Grid.Row="3" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
-                <StackPanel>
-                    <TextBlock Text="Support &amp; Resistance" FontSize="18" FontWeight="SemiBold" Foreground="White" />
-                    <TextBlock Text="{Binding SelectedStrikeLabel}" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,12,0,4" />
-                    <TextBlock Text="{Binding SelectedStrikeDetail}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
-                </StackPanel>
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBlock Text="Live Scan" FontSize="18" FontWeight="SemiBold" Foreground="White" />
+                        <TextBlock Text="{Binding LiveScanStatusText}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding LiveScanHits}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             MouseLeftButtonUp="LiveScanList_MouseLeftButtonUp">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,0,6" />
+                                <Setter Property="Cursor" Value="Hand" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#101720"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="8,6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Symbol}"
+                                                   Foreground="White"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding SignalLabel}"
+                                                   Foreground="{Binding SignalForeground}"
+                                                   FontWeight="SemiBold"
+                                                   Margin="10,0,0,0" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
             </Border>
 
             <Border Grid.Row="4" Style="{StaticResource PanelStyle}">
