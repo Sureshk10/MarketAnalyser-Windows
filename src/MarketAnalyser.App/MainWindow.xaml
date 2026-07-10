@@ -393,7 +393,14 @@
                 </StackPanel>
             </DockPanel>
 
-            <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,14">
+            <Grid Grid.Row="1" Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
                 <Border Style="{StaticResource PanelStyle}" Margin="0,0,10,0">
                     <StackPanel>
                         <TextBlock Text="Spot" Foreground="{StaticResource MutedTextBrush}" />
@@ -401,36 +408,32 @@
                         <TextBlock Text="{Binding SpotChangeText}" Foreground="{Binding SpotChangeForeground}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource PanelStyle}" Margin="0,0,10,0">
+                <Border Grid.Column="1" Style="{StaticResource PanelStyle}" Margin="0,0,10,0">
                     <StackPanel>
                         <TextBlock Text="PCR OI" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock Text="{Binding PcrOiText}" Style="{StaticResource MetricText}" />
                         <TextBlock Text="Put OI / Call OI" Foreground="{StaticResource MutedTextBrush}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource PanelStyle}" Margin="0,0,10,0">
+                <Border Grid.Column="2" Style="{StaticResource PanelStyle}" Margin="0,0,10,0">
                     <StackPanel>
                         <TextBlock Text="PCR Volume" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock Text="{Binding PcrVolumeText}" Style="{StaticResource MetricText}" />
                         <TextBlock Text="Put volume / Call volume" Foreground="{StaticResource MutedTextBrush}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource PanelStyle}">
-                    <StackPanel>
-                        <TextBlock Text="CE / PE Volume" Foreground="{StaticResource MutedTextBrush}" />
-                        <TextBlock Text="{Binding VolumeShareText}" Style="{StaticResource MetricText}" />
-                        <TextBlock Text="Intraday participation" Foreground="{StaticResource MutedTextBrush}" />
-                    </StackPanel>
-                </Border>
-                <Border Style="{StaticResource PanelStyle}" Margin="10,0,0,0">
+                <Border Grid.Column="3"
+                        Grid.ColumnSpan="2"
+                        Style="{StaticResource PanelStyle}"
+                        Margin="10,0,0,0">
                     <StackPanel>
                         <TextBlock Text="Signal" Foreground="{StaticResource MutedTextBrush}" />
                         <TextBlock Text="{Binding MarketSignalText}" Style="{StaticResource MetricText}" Foreground="{Binding MarketSignalForeground}" FontSize="20" />
                         <TextBlock Text="{Binding MarketSignalDetail}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="11" />
-                        <TextBlock Text="{Binding MarketDepthInfluenceText}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0" />
+                        <TextBlock Text="{Binding MarketDepthInfluenceText}" Foreground="{Binding MarketDepthInfluenceForeground}" TextWrapping="Wrap" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,0" />
                     </StackPanel>
                 </Border>
-            </UniformGrid>
+            </Grid>
 
             <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14" Visibility="{Binding AlertsPanelVisibility}">
                 <DockPanel LastChildFill="True">
@@ -518,6 +521,7 @@
                     <DataGrid ItemsSource="{Binding StrikeRows}"
                               SelectedItem="{Binding SelectedStrikeRow, Mode=TwoWay}"
                               RowStyle="{StaticResource OptionRowStyle}"
+                              SelectionChanged="StrikeRowsGrid_SelectionChanged"
                               MouseLeftButtonUp="StrikeRowsGrid_MouseLeftButtonUp">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="" Binding="{Binding AtmLabel}" Width="48" />

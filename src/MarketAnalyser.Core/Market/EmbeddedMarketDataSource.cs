@@ -7,12 +7,15 @@ namespace MarketAnalyser.Core.Market;
 
 public sealed class EmbeddedMarketDataSource : IMarketDataSource
 {
+    private static readonly TimeSpan LiveSnapshotFreshness = TimeSpan.FromSeconds(5);
+
     private readonly InstrumentCatalog catalog;
     private readonly DhanClient dhanClient;
     private readonly DhanOptions dhanOptions;
     private readonly ConcurrentDictionary<string, DateOnly> expiryCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, MarketSnapshot> snapshotCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, decimal> previousCloseCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> underlyingUpdateCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly LiveOptionInstrumentIndex instrumentIndex = new();
     private readonly Lazy<DhanWebSocketFeedClient> liveFeed;
 
@@ -38,6 +41,19 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         return Task.FromResult(catalog.GetAll());
     }
 
+    public void InvalidateSymbol(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        snapshotCache.TryRemove(symbol, out _);
+        previousCloseCache.TryRemove(symbol, out _);
+        expiryCache.TryRemove(symbol, out _);
+        underlyingUpdateCache.TryRemove(symbol, out _);
+    }
+
     public async Task<MarketSnapshot> GetSnapshotAsync(string symbol, CancellationToken cancellationToken)
     {
         var instrument = catalog.Find(symbol) ?? throw new InvalidOperationException($"Unknown symbol '{symbol}'.");
@@ -52,7 +68,8 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
 
         if (dhanOptions.UseWebSocket &&
             snapshotCache.TryGetValue(instrument.Symbol, out var cachedLive) &&
-            DateTimeOffset.UtcNow - cachedLive.Timestamp < TimeSpan.FromSeconds(15))
+            underlyingUpdateCache.TryGetValue(instrument.Symbol, out var lastUnderlyingUpdate) &&
+            DateTimeOffset.UtcNow - lastUnderlyingUpdate < LiveSnapshotFreshness)
         {
             liveFeed.Value.Start();
             return cachedLive;
@@ -75,11 +92,18 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
 
         snapshotCache.TryGetValue(instrument.Symbol, out var previousSnapshot);
         var previousClose = await GetPreviousCloseAsync(instrument, cancellationToken);
-        var marketDepth = await TryGetMarketDepthAsync(instrument, cancellationToken);
+        var marketQuote = await TryGetMarketQuoteAsync(instrument, cancellationToken);
+        var marketDepth = marketQuote?.Depth;
+        var spot = response.Data.LastPrice;
+        if (spot <= 0 && marketDepth?.MidPrice is > 0)
+        {
+            spot = marketDepth.MidPrice;
+        }
         instrumentIndex.ReplaceSymbol(instrument.Symbol, CreateInstrumentRefs(instrument, response));
         liveFeed.Value.Start();
-        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose, marketDepth);
+        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose, spot, marketDepth);
         snapshotCache[instrument.Symbol] = snapshot;
+        underlyingUpdateCache[instrument.Symbol] = snapshot.Timestamp;
         return snapshot;
     }
 
@@ -93,6 +117,10 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         if (MarketSnapshotUpdater.TryApply(instrument, packet, current, out var updated))
         {
             snapshotCache[instrument.Symbol] = updated;
+            if (instrument.IsUnderlying)
+            {
+                underlyingUpdateCache[instrument.Symbol] = updated.Timestamp;
+            }
         }
     }
 
@@ -219,10 +247,10 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         DhanOptionChainResponse response,
         MarketSnapshot? previous,
         PreviousCloseResult previousClose,
+        decimal spot,
         MarketDepthSnapshot? marketDepth)
     {
         var now = DateTimeOffset.UtcNow;
-        var spot = response.Data.LastPrice;
 
         var strikes = response.Data.OptionChain
             .Select(item => CreateStrike(item.Key, item.Value, instrument.StrikeInterval))
@@ -395,7 +423,7 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             TopAskQuantity: leg.TopAskQuantity);
     }
 
-    private async Task<MarketDepthSnapshot?> TryGetMarketDepthAsync(
+    private async Task<MarketQuoteSnapshot?> TryGetMarketQuoteAsync(
         InstrumentSummary instrument,
         CancellationToken cancellationToken)
     {
@@ -410,10 +438,15 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
                 return null;
             }
 
-            return DhanMarketQuoteParser.TryParseDepth(
-                response,
-                instrument.UnderlyingSegment,
-                instrument.UnderlyingSecurityId);
+            return new MarketQuoteSnapshot(
+                DhanMarketQuoteParser.TryParseSpotPrice(
+                    response,
+                    instrument.UnderlyingSegment,
+                    instrument.UnderlyingSecurityId),
+                DhanMarketQuoteParser.TryParseDepth(
+                    response,
+                    instrument.UnderlyingSegment,
+                    instrument.UnderlyingSecurityId));
         }
         catch (Exception ex)
         {

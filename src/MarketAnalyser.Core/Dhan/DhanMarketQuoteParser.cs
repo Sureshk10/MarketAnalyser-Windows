@@ -15,6 +15,15 @@ internal static class DhanMarketQuoteParser
         return TryParseDepth(document.RootElement, expectedExchangeSegment, expectedSecurityId);
     }
 
+    public static decimal? TryParseSpotPrice(
+        string json,
+        string expectedExchangeSegment,
+        int expectedSecurityId)
+    {
+        using var document = JsonDocument.Parse(json);
+        return TryParseSpotPrice(document.RootElement, expectedExchangeSegment, expectedSecurityId);
+    }
+
     public static MarketDepthSnapshot? TryParseDepth(
         JsonElement root,
         string expectedExchangeSegment,
@@ -35,6 +44,32 @@ internal static class DhanMarketQuoteParser
             if (TryParseDepthObject(candidate, out var depth))
             {
                 return depth;
+            }
+        }
+
+        return null;
+    }
+
+    public static decimal? TryParseSpotPrice(
+        JsonElement root,
+        string expectedExchangeSegment,
+        int expectedSecurityId)
+    {
+        var candidates = EnumerateObjects(root).ToArray();
+
+        foreach (var candidate in candidates.Where(candidate => MatchesInstrument(candidate, expectedExchangeSegment, expectedSecurityId)))
+        {
+            if (TryReadDecimalProperty(candidate, out var price, "ltp", "last_price", "lastPrice", "price") && price > 0)
+            {
+                return price;
+            }
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (TryReadDecimalProperty(candidate, out var price, "ltp", "last_price", "lastPrice", "price") && price > 0)
+            {
+                return price;
             }
         }
 

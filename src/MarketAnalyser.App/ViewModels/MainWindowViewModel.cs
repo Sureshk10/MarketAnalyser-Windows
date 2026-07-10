@@ -16,6 +16,12 @@ namespace MarketAnalyser.App.ViewModels;
 
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
+    private const decimal UnderlyingBullishRatio = 1.20m;
+    private const decimal UnderlyingBearishRatio = 0.83m;
+    private const decimal UnusualUnderlyingBullishRatio = 1.50m;
+    private const decimal UnusualUnderlyingBearishRatio = 0.67m;
+    private const long UnusualStrikeDepthThreshold = 25_000;
+
     private readonly IMarketDataSource marketDataSource;
     private readonly AppPreferencesStore preferencesStore;
     private readonly MarketSessionStore sessionStore;
@@ -26,6 +32,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private readonly SemaphoreSlim liveScanGate = new(1, 1);
     private readonly CancellationTokenSource liveScanCts = new();
+    private CancellationTokenSource selectionCts = new();
     private Task? liveScanTask;
     private readonly Dictionary<string, DateTimeOffset> recentAlertKeys = [];
     private static readonly TimeSpan SignalRearmCooldown = TimeSpan.FromMinutes(3);
@@ -75,7 +82,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private bool isLeftPanelVisible = true;
     private bool isRightPanelVisible = true;
     private bool isAlertsPanelVisible = true;
+    private int sessionRecordCountToday;
     private MarketSignalViewModel currentSignal = new("Waiting", "Live snapshot not loaded", Brushes.LightSlateGray);
+    private string? activeSignalPlanDetail;
+    private string? signalClosedOutcomeText;
     private string? signalClosedLabel;
     private DateTimeOffset? signalClosedAt;
     private bool signalPlanOpen;
@@ -362,20 +372,36 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => selectedInstrument;
         set
         {
+            var previousSymbol = selectedInstrument?.Symbol;
             if (SetField(ref selectedInstrument, value) && value is not null)
             {
+                var previousSelectionCts = Interlocked.Exchange(ref selectionCts, new CancellationTokenSource());
+                previousSelectionCts.Cancel();
+                previousSelectionCts.Dispose();
+                var selectionToken = selectionCts.Token;
+
+                InvalidateSymbolCache(previousSymbol);
+                InvalidateSymbolCache(value.Symbol);
+
                 preferences.LastSelectedSymbol = value.Symbol;
                 preferencesStore.Save(preferences);
                 lastRecordedSnapshotTime = null;
+                sessionRecordCountToday = 0;
                 hasSessionBackfill = false;
                 lastMovementTimelineTitle = null;
                 StopReplay(clearRecords: true);
                 ResetSignalState();
+                Snapshot = null;
+                Strikes.Clear();
+                StrikeRows.Clear();
+                PriceChartSeries = [];
+                OiChartSeries = [];
+                SelectedStrikeOiChartSeries = [];
+                SelectedStrike = null;
+                OnPropertyChanged(nameof(SelectedStrikeRow));
                 MovementTimeline.Clear();
                 UpdateSessionReview([], []);
-                _ = LoadSessionBackfillAsync(value.Symbol);
-                _ = LoadMovementTimelineAsync(value.Symbol);
-                _ = RefreshAsync();
+                _ = InitializeSelectedInstrumentAsync(value.Symbol, selectionToken);
             }
         }
     }
@@ -428,6 +454,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(VolumeShareText));
                 OnPropertyChanged(nameof(LastUpdatedText));
                 OnPropertyChanged(nameof(MarketDepthInfluenceText));
+                OnPropertyChanged(nameof(MarketDepthInfluenceForeground));
             }
         }
     }
@@ -617,6 +644,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string MarketDepthInfluenceText => Snapshot is null ? "--" : DescribeDepthPressure(Snapshot);
 
+    public Brush MarketDepthInfluenceForeground => Snapshot is null
+        ? Brushes.LightSlateGray
+        : ResolveDepthPressureForeground(Snapshot);
+
     public Brush MarketSignalForeground => currentSignal.Foreground;
 
     public string SelectedStrikeLabel => SelectedStrike is null ? "Select a strike" : FormatNumber(SelectedStrike.Strike);
@@ -660,23 +691,94 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             liveScanCts.Cancel();
         }
+
+        if (!selectionCts.IsCancellationRequested)
+        {
+            selectionCts.Cancel();
+        }
     }
 
     public async Task RefreshAsync()
     {
-        if (isReplayMode || SelectedInstrument is null || !await refreshGate.WaitAsync(0))
+        await RefreshAsync(selectionCts.Token);
+    }
+
+    private void InvalidateSymbolCache(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol) || marketDataSource is not EmbeddedMarketDataSource embeddedMarketDataSource)
         {
             return;
         }
 
+        embeddedMarketDataSource.InvalidateSymbol(symbol);
+    }
+
+    private async Task InitializeSelectedInstrumentAsync(string symbol, CancellationToken selectionToken)
+    {
+        await RefreshAsync(selectionToken, force: true);
+
+        if (selectionToken.IsCancellationRequested ||
+            SelectedInstrument is null ||
+            !string.Equals(SelectedInstrument.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await LoadSessionBackfillAsync(symbol, selectionToken);
+
+        if (selectionToken.IsCancellationRequested ||
+            SelectedInstrument is null ||
+            !string.Equals(SelectedInstrument.Symbol, symbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await LoadMovementTimelineAsync(symbol, selectionToken);
+    }
+
+    private async Task RefreshAsync(CancellationToken selectionToken, bool force = false)
+    {
+        if (isReplayMode || SelectedInstrument is null)
+        {
+            return;
+        }
+
+        var entered = false;
         try
         {
+            if (force)
+            {
+                await refreshGate.WaitAsync(selectionToken);
+                entered = true;
+            }
+            else
+            {
+                entered = await refreshGate.WaitAsync(0);
+            }
+
+            if (!entered)
+            {
+                return;
+            }
+
             IsBusy = true;
             Status = "Refreshing";
-            var next = await marketDataSource.GetSnapshotAsync(SelectedInstrument.Symbol, CancellationToken.None);
-            ApplySnapshot(next);
-            await RecordSnapshotAsync(next);
+            var requestedSymbol = SelectedInstrument.Symbol;
+            var next = await marketDataSource.GetSnapshotAsync(requestedSymbol, selectionToken);
+
+            if (selectionToken.IsCancellationRequested ||
+                SelectedInstrument is null ||
+                !string.Equals(SelectedInstrument.Symbol, requestedSymbol, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ApplySnapshot(next, selectionToken: selectionToken);
+            await RecordSnapshotAsync(next, selectionToken);
             Status = $"Live via {DataSourceName}";
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -685,7 +787,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         finally
         {
             IsBusy = false;
-            refreshGate.Release();
+            if (entered)
+            {
+                refreshGate.Release();
+            }
         }
     }
 
@@ -706,7 +811,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (ReferenceEquals(SelectedInstrument, instrument))
         {
-            _ = RefreshAsync();
+            _ = RefreshAsync(selectionCts.Token, force: true);
             return;
         }
 
@@ -889,13 +994,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task LoadSessionBackfillAsync(string symbol)
+    private async Task LoadSessionBackfillAsync(string symbol, CancellationToken selectionToken)
     {
         try
         {
             var today = DateOnly.FromDateTime(DateTime.Now);
-            var backfill = await sessionStore.LoadBackfillAsync(symbol, today, CancellationToken.None);
-            if (SelectedInstrument?.Symbol != symbol)
+            var backfill = await sessionStore.LoadBackfillAsync(symbol, today, selectionToken);
+            if (selectionToken.IsCancellationRequested || SelectedInstrument?.Symbol != symbol)
             {
                 return;
             }
@@ -903,28 +1008,37 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             hasSessionBackfill = backfill.RecordCount > 0;
             if (backfill.MissingRanges.Count > 0)
             {
-                var fetched = await RequestHistoricalBackfillAsync(symbol, backfill.MissingRanges);
+                var fetched = await RequestHistoricalBackfillAsync(symbol, backfill.MissingRanges, selectionToken);
                 if (fetched > 0)
                 {
-                    backfill = await sessionStore.LoadBackfillAsync(symbol, today, CancellationToken.None);
+                    backfill = await sessionStore.LoadBackfillAsync(symbol, today, selectionToken);
                     hasSessionBackfill = backfill.RecordCount > 0;
                 }
             }
 
             if (hasSessionBackfill)
             {
+                var existingPricePoints = PriceChartSeries.FirstOrDefault()?.Points;
+                var existingOiPoints = OiChartSeries.FirstOrDefault()?.Points;
+                var pricePoints = MergeChartPoints(existingPricePoints, backfill.PriceSeries);
+                var oiPoints = MergeChartPoints(existingOiPoints, backfill.OiChangeSeries);
+
                 PriceChartSeries =
                 [
-                    new ChartSeriesViewModel("Spot", backfill.PriceSeries, Brushes.MediumSeaGreen)
+                    new ChartSeriesViewModel("Spot", pricePoints, Brushes.MediumSeaGreen)
                 ];
                 OiChartSeries =
                 [
-                    new ChartSeriesViewModel("PE - CE OI Chg", backfill.OiChangeSeries, Brushes.CornflowerBlue)
+                    new ChartSeriesViewModel("PE - CE OI Chg", oiPoints, Brushes.CornflowerBlue)
                 ];
                 lastRecordedSnapshotTime = backfill.LastTimestamp;
             }
 
+            sessionRecordCountToday = backfill.RecordCount;
             SessionStatus = BuildSessionStatus(symbol, backfill);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -935,7 +1049,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task<int> RequestHistoricalBackfillAsync(
         string symbol,
-        IReadOnlyList<MarketSessionMissingRange> missingRanges)
+        IReadOnlyList<MarketSessionMissingRange> missingRanges,
+        CancellationToken selectionToken)
     {
         var fetched = 0;
         foreach (var range in missingRanges)
@@ -944,7 +1059,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 symbol,
                 range.From,
                 range.To,
-                CancellationToken.None);
+                selectionToken);
 
             if (snapshots.Count == 0)
             {
@@ -953,11 +1068,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
             foreach (var snapshot in snapshots.OrderBy(item => item.Timestamp))
             {
+                if (selectionToken.IsCancellationRequested)
+                {
+                    return fetched;
+                }
+
                 await sessionStore.AppendAsync(
                     snapshot,
                     SelectedStrike,
                     BuildMarketSignal(snapshot),
-                    CancellationToken.None);
+                    selectionToken);
                 fetched++;
             }
         }
@@ -984,7 +1104,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return $"{range.From.ToLocalTime():HH:mm}-{range.To.ToLocalTime():HH:mm}";
     }
 
-    private async Task RecordSnapshotAsync(MarketSnapshot next)
+    private async Task RecordSnapshotAsync(MarketSnapshot next, CancellationToken selectionToken)
     {
         if (lastRecordedSnapshotTime == next.Timestamp)
         {
@@ -993,12 +1113,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         try
         {
-            await sessionStore.AppendAsync(next, SelectedStrike, BuildMarketSignal(), CancellationToken.None);
-            lastRecordedSnapshotTime = next.Timestamp;
+            if (selectionToken.IsCancellationRequested)
+            {
+                return;
+            }
 
-            var today = DateOnly.FromDateTime(next.Timestamp.ToLocalTime().DateTime);
-            var count = await sessionStore.CountRecordsAsync(next.Symbol, today, CancellationToken.None);
-            SessionStatus = $"Recording {next.Symbol}: {count:N0} local records today";
+            await sessionStore.AppendAsync(next, SelectedStrike, BuildMarketSignal(), selectionToken);
+            lastRecordedSnapshotTime = next.Timestamp;
+            sessionRecordCountToday++;
+            SessionStatus = $"Recording {next.Symbol}: {sessionRecordCountToday:N0} local records today";
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -1059,7 +1185,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         };
     }
 
-    private void ApplySnapshot(MarketSnapshot next, bool recordTimeline = true)
+    private void ApplySnapshot(MarketSnapshot next, bool recordTimeline = true, CancellationToken selectionToken = default)
     {
         Snapshot = next;
         var previousSelectedStrike = SelectedStrike?.Strike;
@@ -1116,7 +1242,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         UpdateMovementReading(pricePoints, oiPoints);
         if (recordTimeline)
         {
-            RecordMovementTimeline(next);
+            RecordMovementTimeline(next, selectionToken);
         }
         UpdateSessionReview(pricePoints, oiPoints);
         UpdateSelectedStrikeOiChartSeries();
@@ -1124,13 +1250,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         EvaluateAlerts(next);
     }
 
-    private async Task LoadMovementTimelineAsync(string symbol)
+    private async Task LoadMovementTimelineAsync(string symbol, CancellationToken selectionToken)
     {
         try
         {
             var today = DateOnly.FromDateTime(DateTime.Now);
-            var records = await movementTimelineStore.LoadAsync(symbol, today, CancellationToken.None);
-            if (SelectedInstrument?.Symbol != symbol)
+            var records = await movementTimelineStore.LoadAsync(symbol, today, selectionToken);
+            if (selectionToken.IsCancellationRequested || SelectedInstrument?.Symbol != symbol)
             {
                 return;
             }
@@ -1144,13 +1270,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             lastMovementTimelineTitle = records.LastOrDefault()?.Title;
             UpdateSessionReview(CurrentPricePoints(), CurrentOiPoints());
         }
+        catch (OperationCanceledException)
+        {
+        }
         catch (Exception ex)
         {
             AppExceptionLogger.Log(ex);
         }
     }
 
-    private void RecordMovementTimeline(MarketSnapshot next)
+    private void RecordMovementTimeline(MarketSnapshot next, CancellationToken selectionToken)
     {
         if (string.IsNullOrWhiteSpace(MovementReadingTitle) ||
             MovementReadingTitle == "Waiting" ||
@@ -1175,15 +1304,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             MovementTimeline.RemoveAt(MovementTimeline.Count - 1);
         }
 
-        _ = PersistMovementTimelineAsync(record);
+        _ = PersistMovementTimelineAsync(record, selectionToken);
         UpdateSessionReview(CurrentPricePoints(), CurrentOiPoints());
     }
 
-    private async Task PersistMovementTimelineAsync(MovementTimelineRecord record)
+    private async Task PersistMovementTimelineAsync(MovementTimelineRecord record, CancellationToken selectionToken)
     {
         try
         {
-            await movementTimelineStore.AppendAsync(record, CancellationToken.None);
+            await movementTimelineStore.AppendAsync(record, selectionToken);
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -1700,7 +1832,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         StopReplay(clearRecords: true);
         ResetSignalState();
         refreshTimer.Start();
-        _ = RefreshAsync();
+        _ = RefreshAsync(selectionCts.Token, force: true);
     }
 
     private void StopReplay(bool clearRecords)
@@ -2208,13 +2340,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 signalPlanOpen = false;
                 signalClosedLabel = currentSignal.Label;
                 signalClosedAt = snapshot.Timestamp;
+                signalClosedOutcomeText = $"{FormatOutcome(outcome)} at {snapshot.Timestamp.ToLocalTime():HH:mm:ss}";
                 SetCurrentSignal(currentSignal with
                 {
-                    Detail = $"{currentSignal.Detail} | {FormatOutcome(outcome)} at {snapshot.Timestamp.ToLocalTime():HH:mm:ss}",
+                    Detail = $"{BuildLiveSignalDetail(activeSignalPlanDetail ?? currentSignal.Detail, snapshot)} | {signalClosedOutcomeText}",
                     Foreground = currentSignal.Foreground
                 });
+                return;
             }
 
+            SetCurrentSignal(currentSignal with
+            {
+                Detail = BuildLiveSignalDetail(activeSignalPlanDetail ?? currentSignal.Detail, snapshot)
+            });
             return;
         }
 
@@ -2222,6 +2360,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (IsClosedSignal(currentSignal))
             {
+                SetCurrentSignal(currentSignal with
+                {
+                    Detail = BuildLiveSignalDetail(activeSignalPlanDetail ?? currentSignal.Detail, snapshot) +
+                        (string.IsNullOrWhiteSpace(signalClosedOutcomeText) ? string.Empty : $" | {signalClosedOutcomeText}")
+                });
                 return;
             }
 
@@ -2239,13 +2382,20 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         signalClosedLabel = null;
         signalClosedAt = null;
+        signalClosedOutcomeText = null;
+        activeSignalPlanDetail = freshSignal.Detail;
         signalPlanOpen = true;
-        SetCurrentSignal(freshSignal);
+        SetCurrentSignal(freshSignal with
+        {
+            Detail = BuildLiveSignalDetail(freshSignal.Detail, snapshot)
+        });
     }
 
     private void ResetSignalState()
     {
         signalPlanOpen = false;
+        activeSignalPlanDetail = null;
+        signalClosedOutcomeText = null;
         signalClosedLabel = null;
         signalClosedAt = null;
         lastSignalLabel = null;
@@ -2273,6 +2423,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             "stoploss hit" => "Stoploss hit",
             _ => "Trade closed"
         };
+    }
+
+    private static string BuildLiveSignalDetail(string baseDetail, MarketSnapshot snapshot)
+    {
+        return $"Spot {FormatNumber(snapshot.Spot)} @ {snapshot.Timestamp.ToLocalTime():HH:mm:ss} | {baseDetail}";
     }
 
     private static string BuildSelectedDaySummary(ReplaySelectionData selection)
@@ -2456,15 +2611,54 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         if (snapshot.Depth is { } depth && (depth.BidQuantity > 0 || depth.AskQuantity > 0))
         {
+            var ratio = depth.AskQuantity > 0 ? (decimal)depth.BidQuantity / depth.AskQuantity : 0;
+            var prefix = ratio >= UnusualUnderlyingBullishRatio
+                ? "Unusual bullish"
+                : ratio <= UnusualUnderlyingBearishRatio
+                    ? "Unusual bearish"
+                    : ratio >= UnderlyingBullishRatio
+                        ? "Bullish"
+                        : ratio <= UnderlyingBearishRatio
+                            ? "Bearish"
+                            : "Balanced";
             var bestBid = depth.BestBid is null ? string.Empty : $" best bid {CompactNumberFormatter.FormatCount(depth.BestBid.Quantity)}@{depth.BestBid.Price:N2}";
             var bestAsk = depth.BestAsk is null ? string.Empty : $" best ask {CompactNumberFormatter.FormatCount(depth.BestAsk.Quantity)}@{depth.BestAsk.Price:N2}";
-            return $"5L depth B {CompactNumberFormatter.FormatCount(depth.BidQuantity)} / A {CompactNumberFormatter.FormatCount(depth.AskQuantity)}{bestBid}{bestAsk}";
+            return $"{prefix} 5L depth B {CompactNumberFormatter.FormatCount(depth.BidQuantity)} / A {CompactNumberFormatter.FormatCount(depth.AskQuantity)}{bestBid}{bestAsk}";
         }
 
         var strikeDepth = AggregateStrikeDepthPressure(snapshot);
-        return strikeDepth == 0
+        return Math.Abs(strikeDepth) >= UnusualStrikeDepthThreshold
+            ? $"Unusual strike depth {CompactNumberFormatter.FormatChange(strikeDepth)}"
+            : strikeDepth == 0
             ? "depth balanced"
             : $"strike depth {CompactNumberFormatter.FormatChange(strikeDepth)}";
+    }
+
+    private static Brush ResolveDepthPressureForeground(MarketSnapshot snapshot)
+    {
+        if (snapshot.Depth is { } depth && (depth.BidQuantity > 0 || depth.AskQuantity > 0))
+        {
+            var ratio = depth.AskQuantity > 0 ? (decimal)depth.BidQuantity / depth.AskQuantity : 0;
+            if (ratio >= UnderlyingBullishRatio)
+            {
+                return Brushes.MediumSeaGreen;
+            }
+
+            if (ratio <= UnderlyingBearishRatio)
+            {
+                return Brushes.IndianRed;
+            }
+
+            return Brushes.Goldenrod;
+        }
+
+        var strikeDepth = AggregateStrikeDepthPressure(snapshot);
+        if (Math.Abs(strikeDepth) >= UnusualStrikeDepthThreshold)
+        {
+            return strikeDepth > 0 ? Brushes.MediumSeaGreen : Brushes.IndianRed;
+        }
+
+        return Brushes.Goldenrod;
     }
 
     private static decimal ResolveSignalRiskPoints(MarketSnapshot snapshot)

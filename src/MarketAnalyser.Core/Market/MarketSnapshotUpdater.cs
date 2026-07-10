@@ -48,6 +48,17 @@ public static class MarketSnapshotUpdater
 
         var now = DateTimeOffset.UtcNow;
         var spot = packet.LastPrice.Value;
+
+        if (current.Spot > 0)
+        {
+            var ratio = spot / current.Spot;
+            if (ratio < 0.5m || ratio > 2m)
+            {
+                snapshot = current;
+                return false;
+            }
+        }
+
         snapshot = current with
         {
             Spot = spot,
