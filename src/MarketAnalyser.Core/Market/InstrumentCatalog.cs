@@ -60,7 +60,8 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
                 !string.IsNullOrWhiteSpace(item.UnderlyingSegment) &&
                 !string.IsNullOrWhiteSpace(item.DerivativeSegment) &&
                 item.UnderlyingSecurityId > 0 &&
-                item.StrikeInterval > 0)
+                item.StrikeInterval > 0 &&
+                item.LotSize > 0)
             .Select(item => new InstrumentSummary(
                 item.Symbol.Trim().ToUpperInvariant(),
                 item.DisplayName.Trim(),
@@ -69,6 +70,7 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
                 item.UnderlyingSegment.Trim(),
                 item.DerivativeSegment.Trim(),
                 item.StrikeInterval,
+                item.LotSize,
                 item.IsFavorite))
             .GroupBy(item => item.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
@@ -147,6 +149,8 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
                     continue;
                 }
 
+                var lotSize = ReadLotSize(row, index, itemDefault: 1);
+
                 if (!DateTime.TryParse(Value(row, index, "SEM_EXPIRY_DATE"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var expiry))
                 {
                     continue;
@@ -158,7 +162,7 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
                     optionGroups[symbol] = rows;
                 }
 
-                rows.Add(new DhanOptionRow(symbol, strike, expiry));
+                rows.Add(new DhanOptionRow(symbol, strike, expiry, lotSize));
             }
             else if (exchange == "MCX" && segment == "M" && instrument == "FUTCOM")
             {
@@ -208,7 +212,7 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
                     commodityOptionGroups[symbolName] = rows;
                 }
 
-                rows.Add(new DhanOptionRow(symbolName, strike, expiry));
+                rows.Add(new DhanOptionRow(symbolName, strike, expiry, ReadLotSize(row, index, itemDefault: 1)));
             }
         }
 
@@ -278,6 +282,7 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
             "NSE_EQ",
             "NSE_FNO",
             strikeInterval,
+            GetLotSize(optionRows),
             false);
     }
 
@@ -317,7 +322,38 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
             "MCX_COMM",
             "MCX_COMM",
             strikeInterval,
+            GetLotSize(optionRows),
             false);
+    }
+
+    private static int ReadLotSize(IReadOnlyList<string> row, IReadOnlyDictionary<string, int> index, int itemDefault)
+    {
+        var keys = new[]
+        {
+            "LOT_SIZE",
+            "SEM_LOT_SIZE",
+            "SEM_MARKET_LOT",
+            "MARKET_LOT",
+            "MKT_LOT",
+            "CONTRACT_SIZE"
+        };
+
+        foreach (var key in keys)
+        {
+            var text = Value(row, index, key);
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lotSize) && lotSize > 0)
+            {
+                return lotSize;
+            }
+        }
+
+        return itemDefault;
+    }
+
+    private static int GetLotSize(IReadOnlyList<DhanOptionRow> optionRows)
+    {
+        return optionRows.FirstOrDefault(item => item.LotSize > 0)?.LotSize
+            ?? 1;
     }
 
     private static decimal InferStrikeInterval(IEnumerable<decimal> strikes)
@@ -349,17 +385,17 @@ public sealed partial class InstrumentCatalog(InstrumentCatalogOptions options)
 
     private static readonly IReadOnlyList<InstrumentSummary> DefaultInstruments =
     [
-        new("NIFTY", "NIFTY 50", MarketSegment.Nifty, 13, "IDX_I", "NSE_FNO", 50, true),
-        new("SENSEX", "SENSEX", MarketSegment.Sensex, 51, "IDX_I", "BSE_FNO", 100, true),
-        new("BANKNIFTY", "NIFTY BANK", MarketSegment.BankNifty, 25, "IDX_I", "NSE_FNO", 100, false),
-        new("FINNIFTY", "NIFTY FIN SERVICE", MarketSegment.FinNifty, 27, "IDX_I", "NSE_FNO", 50, false)
+        new("NIFTY", "NIFTY 50", MarketSegment.Nifty, 13, "IDX_I", "NSE_FNO", 50, 65, true),
+        new("SENSEX", "SENSEX", MarketSegment.Sensex, 51, "IDX_I", "BSE_FNO", 100, 10, true),
+        new("BANKNIFTY", "NIFTY BANK", MarketSegment.BankNifty, 25, "IDX_I", "NSE_FNO", 100, 35, false),
+        new("FINNIFTY", "NIFTY FIN SERVICE", MarketSegment.FinNifty, 27, "IDX_I", "NSE_FNO", 50, 25, false)
     ];
 
     private sealed record DhanEquityRow(string Symbol, int SecurityId, string DisplayName);
 
     private sealed record DhanFutureRow(string Symbol, int SecurityId, DateTime Expiry, string DisplayName);
 
-    private sealed record DhanOptionRow(string Symbol, decimal Strike, DateTime Expiry);
+    private sealed record DhanOptionRow(string Symbol, decimal Strike, DateTime Expiry, int LotSize);
 }
 
 file static class Csv

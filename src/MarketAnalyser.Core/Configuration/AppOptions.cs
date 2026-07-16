@@ -10,6 +10,8 @@ public sealed class AppOptions
 
     public DhanOptions Dhan { get; init; } = new();
 
+    public OrderOptions Orders { get; init; } = new();
+
     public InstrumentCatalogOptions Instruments { get; init; } = new();
 
     public static AppOptions Load(string path)
@@ -58,6 +60,13 @@ public sealed class DhanOptions
     public bool UseWebSocket { get; init; } = true;
 }
 
+public sealed class OrderOptions
+{
+    public string Broker { get; init; } = "Dhan";
+
+    public bool Enabled { get; init; } = false;
+}
+
 public sealed class InstrumentCatalogOptions
 {
     public bool UseDhanScripMaster { get; init; } = true;
@@ -81,6 +90,7 @@ public sealed class InstrumentCatalogOptions
             UnderlyingSegment = "IDX_I",
             DerivativeSegment = "NSE_FNO",
             StrikeInterval = 50,
+            LotSize = 65,
             IsFavorite = true
         },
         new()
@@ -92,6 +102,7 @@ public sealed class InstrumentCatalogOptions
             UnderlyingSegment = "IDX_I",
             DerivativeSegment = "BSE_FNO",
             StrikeInterval = 100,
+            LotSize = 10,
             IsFavorite = true
         },
         new()
@@ -102,7 +113,8 @@ public sealed class InstrumentCatalogOptions
             UnderlyingSecurityId = 25,
             UnderlyingSegment = "IDX_I",
             DerivativeSegment = "NSE_FNO",
-            StrikeInterval = 100
+            StrikeInterval = 100,
+            LotSize = 35
         },
         new()
         {
@@ -112,7 +124,8 @@ public sealed class InstrumentCatalogOptions
             UnderlyingSecurityId = 27,
             UnderlyingSegment = "IDX_I",
             DerivativeSegment = "NSE_FNO",
-            StrikeInterval = 50
+            StrikeInterval = 50,
+            LotSize = 25
         }
     ];
 }
@@ -133,6 +146,8 @@ public sealed class InstrumentOptions
     public string DerivativeSegment { get; init; } = string.Empty;
 
     public decimal StrikeInterval { get; init; }
+
+    public int LotSize { get; init; } = 1;
 
     public bool IsFavorite { get; init; }
 

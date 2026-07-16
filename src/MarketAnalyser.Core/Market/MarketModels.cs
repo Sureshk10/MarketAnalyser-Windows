@@ -24,6 +24,7 @@ public sealed record InstrumentSummary(
     string UnderlyingSegment,
     string DerivativeSegment,
     decimal StrikeInterval,
+    int LotSize,
     bool IsFavorite);
 
 public sealed record OptionLegSnapshot(

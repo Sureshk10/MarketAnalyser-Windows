@@ -208,6 +208,7 @@
             <Setter Property="Foreground" Value="#D8E1EC" />
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="MinWidth" Value="72" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
 
@@ -259,6 +260,34 @@
         <Style x:Key="StrikeCellText" TargetType="TextBlock" BasedOn="{StaticResource RightAlignedCellText}">
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="StrikeCellButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="OrderActionButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#111A24" />
+            <Setter Property="BorderBrush" Value="#2A3644" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="#D8E1EC" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="CompactActionCellStyle" TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="0" />
         </Style>
 
         <Style x:Key="CallOiCell" TargetType="DataGridCell">
@@ -373,12 +402,12 @@
                     <TextBlock Text="Option-chain movement, OI pressure, IV/Greeks, support and resistance." Foreground="{StaticResource MutedTextBrush}" />
                     <TextBlock Text="{Binding SessionStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
-                        <Button Style="{StaticResource SmallChromeButton}"
+                    <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <WrapPanel HorizontalAlignment="Right" Margin="0,0,0,8">
+                            <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding LeftPanelToggleText}"
                                 Command="{Binding ToggleLeftPanelCommand}" />
-                        <Button Style="{StaticResource SmallChromeButton}"
+                            <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding AlertsPanelToggleText}"
                                 Command="{Binding ToggleAlertsPanelCommand}" />
                         <Button Style="{StaticResource SmallChromeButton}"
@@ -387,10 +416,13 @@
                         <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding SessionReviewPanelToggleText}"
                                 Command="{Binding ToggleSessionReviewPanelCommand}" />
+                            <Button Style="{StaticResource SmallChromeButton}"
+                                Content="Orders"
+                                Command="{Binding OpenOrdersPopupCommand}" />
+                        </WrapPanel>
+                        <TextBlock Text="Last update" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
+                        <TextBlock Text="{Binding LastUpdatedText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Right" />
                     </StackPanel>
-                    <TextBlock Text="Last update" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Right" />
-                    <TextBlock Text="{Binding LastUpdatedText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                </StackPanel>
             </DockPanel>
 
             <Grid Grid.Row="1" Margin="0,0,0,14">
@@ -520,22 +552,77 @@
                     <TextBlock DockPanel.Dock="Top" Text="Live Option Chain" FontSize="18" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,12" />
                     <DataGrid ItemsSource="{Binding StrikeRows}"
                               SelectedItem="{Binding SelectedStrikeRow, Mode=TwoWay}"
-                              RowStyle="{StaticResource OptionRowStyle}"
                               SelectionChanged="StrikeRowsGrid_SelectionChanged"
-                              MouseLeftButtonUp="StrikeRowsGrid_MouseLeftButtonUp">
+                              RowStyle="{StaticResource OptionRowStyle}">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="" Binding="{Binding AtmLabel}" Width="48" />
+                            <DataGridTemplateColumn Header="" Width="40">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding AtmLabel}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontWeight="SemiBold" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CE" Width="Auto" CellStyle="{StaticResource CompactActionCellStyle}">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <Button Content="B"
+                                                    Foreground="MediumSeaGreen"
+                                                    Style="{StaticResource OrderActionButtonStyle}"
+                                                    Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.OpenStrikeOrderScreenCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="CE Buy" />
+                                            <Button Content="S"
+                                                    Foreground="IndianRed"
+                                                    Style="{StaticResource OrderActionButtonStyle}"
+                                                    Command="{Binding DataContext.OpenStrikeOrderScreenCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="CE Sell" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="CE IV" Binding="{Binding Snapshot.Call.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
                             <DataGridTextColumn Header="CE OI" Binding="{Binding CallOpenInterestText}" CellStyle="{StaticResource CallOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.1*" />
                             <DataGridTextColumn Header="CE Vol" Binding="{Binding CallVolumeText}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
                             <DataGridTextColumn Header="CE OI Chg" Binding="{Binding CallOpenInterestChangeText}" CellStyle="{StaticResource CallOiChangeCell}" ElementStyle="{StaticResource CallOiChangeText}" Width="1.1*" />
                             <DataGridTextColumn Header="CE LTP" Binding="{Binding Snapshot.Call.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
-                            <DataGridTextColumn Header="Strike" Binding="{Binding Strike, StringFormat=N0}" ElementStyle="{StaticResource StrikeCellText}" Width="*" />
+                            <DataGridTemplateColumn Header="Strike" Width="*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Strike, StringFormat=N0}"
+                                                Command="{Binding DataContext.ShowStrikeDetailsCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding Snapshot}"
+                                                Style="{StaticResource StrikeCellButtonStyle}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="PE LTP" Binding="{Binding Snapshot.Put.LastPrice, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
                             <DataGridTextColumn Header="PE OI Chg" Binding="{Binding PutOpenInterestChangeText}" CellStyle="{StaticResource PutOiChangeCell}" ElementStyle="{StaticResource PutOiChangeText}" Width="1.1*" />
                             <DataGridTextColumn Header="PE Vol" Binding="{Binding PutVolumeText}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
                             <DataGridTextColumn Header="PE OI" Binding="{Binding PutOpenInterestText}" CellStyle="{StaticResource PutOiCell}" ElementStyle="{StaticResource RightAlignedCellText}" Width="1.1*" />
                             <DataGridTextColumn Header="PE IV" Binding="{Binding Snapshot.Put.ImpliedVolatility, StringFormat=N2}" ElementStyle="{StaticResource RightAlignedCellText}" Width="0.9*" />
+                            <DataGridTemplateColumn Header="PE" Width="Auto" CellStyle="{StaticResource CompactActionCellStyle}">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <Button Content="B"
+                                                    Foreground="MediumSeaGreen"
+                                                    Style="{StaticResource OrderActionButtonStyle}"
+                                                    Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.OpenStrikeOrderScreenCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="PE Buy" />
+                                            <Button Content="S"
+                                                    Foreground="IndianRed"
+                                                    Style="{StaticResource OrderActionButtonStyle}"
+                                                    Command="{Binding DataContext.OpenStrikeOrderScreenCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="PE Sell" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Pressure" Binding="{Binding PressureLabel}" ElementStyle="{StaticResource PressureText}" Width="1*" />
                         </DataGrid.Columns>
                     </DataGrid>

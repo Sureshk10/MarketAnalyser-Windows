@@ -5,12 +5,12 @@ namespace MarketAnalyser.App;
 
 public partial class ReplaySummaryWindow : Window
 {
-    public ReplaySummaryWindow(string symbol, DateOnly date, DateTimeOffset startFrom, string summaryText)
+    public ReplaySummaryWindow(string symbol, DateOnly fromDate, DateOnly toDate, string summaryText)
     {
         InitializeComponent();
         Title = $"{symbol} Summary";
-        TitleText.Text = $"{symbol} selected day summary";
-        SubtitleText.Text = $"{date:yyyy-MM-dd} from {startFrom.ToLocalTime():HH:mm}";
+        TitleText.Text = $"{symbol} 30 day summary";
+        SubtitleText.Text = $"{fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}";
         SummaryBox.Text = summaryText;
     }
 

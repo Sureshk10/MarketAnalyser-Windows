@@ -10,7 +10,9 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using MarketAnalyser.App;
 using MarketAnalyser.App.Session;
+using MarketAnalyser.Core.Configuration;
 using MarketAnalyser.Core.Market;
+using MarketAnalyser.Core.Orders;
 
 namespace MarketAnalyser.App.ViewModels;
 
@@ -27,6 +29,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly MarketSessionStore sessionStore;
     private readonly MovementTimelineStore movementTimelineStore;
     private readonly IHistoricalMarketDataSource historicalDataSource;
+    private readonly IOrderBroker orderBroker;
+    private readonly OrderOptions orderOptions;
     private readonly DispatcherTimer refreshTimer;
     private readonly DispatcherTimer replayTimer;
     private readonly SemaphoreSlim refreshGate = new(1, 1);
@@ -68,6 +72,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string sessionReviewOiText = "--";
     private string sessionReviewExportText = string.Empty;
     private string liveScanStatusText = "Live scan not started";
+    private string orderServiceStatusText = "Order service not enabled";
     private string replayOutcomeText = "Load replay to evaluate follow-through";
     private Brush replayOutcomeForeground = Brushes.LightSlateGray;
     private DateTime? replaySelectedDate = DateTime.Today;
@@ -95,13 +100,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         AppPreferencesStore preferencesStore,
         MarketSessionStore sessionStore,
         MovementTimelineStore movementTimelineStore,
-        IHistoricalMarketDataSource historicalDataSource)
+        IHistoricalMarketDataSource historicalDataSource,
+        IOrderBroker orderBroker,
+        OrderOptions orderOptions)
     {
         this.marketDataSource = marketDataSource;
         this.preferencesStore = preferencesStore;
         this.sessionStore = sessionStore;
         this.movementTimelineStore = movementTimelineStore;
         this.historicalDataSource = historicalDataSource;
+        this.orderBroker = orderBroker;
+        this.orderOptions = orderOptions;
         DataSourceName = marketDataSource.Name;
         ToggleFavoriteCommand = new RelayCommand<CatalogInstrumentViewModel>(ToggleFavorite);
         ClearAlertsCommand = new RelayCommand<object>(_ => Alerts.Clear());
@@ -112,10 +121,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ReplayPlayPauseCommand = new RelayCommand<object>(_ => ToggleReplayPlayback());
         ResumeLiveCommand = new RelayCommand<object>(_ => ResumeLive());
         OpenTradingViewChartCommand = new RelayCommand<object>(_ => OpenTradingViewChart());
+        PlaceCeBuyCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Buy, "CE"));
+        PlaceCeSellCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Sell, "CE"));
+        PlacePeBuyCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Buy, "PE"));
+        PlacePeSellCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Sell, "PE"));
+        OpenOrdersPopupCommand = new RelayCommand<object>(_ => OpenOrdersPopup("Open"));
+        OpenClosedOrdersPopupCommand = new RelayCommand<object>(_ => OpenOrdersPopup("Closed"));
+        OpenStrikeOrderScreenCommand = new RelayCommand<object>(p => OpenStrikeOrderScreen(p));
+        ShowStrikeDetailsCommand = new RelayCommand<object>(p => ShowStrikeDetails(p as OptionStrikeSnapshot));
         ToggleSessionReviewPanelCommand = new RelayCommand<object>(_ => IsSessionReviewVisible = !IsSessionReviewVisible);
         ToggleLeftPanelCommand = new RelayCommand<object>(_ => IsLeftPanelVisible = !IsLeftPanelVisible);
         ToggleRightPanelCommand = new RelayCommand<object>(_ => IsRightPanelVisible = !IsRightPanelVisible);
         ToggleAlertsPanelCommand = new RelayCommand<object>(_ => IsAlertsPanelVisible = !IsAlertsPanelVisible);
+        OrderServiceStatusText = orderOptions.Enabled
+            ? $"Orders enabled via {orderBroker.Kind}"
+            : $"Orders scaffold ready via {orderBroker.Kind}";
         refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         refreshTimer.Tick += async (_, _) => await RefreshAsync();
         replayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
@@ -174,6 +194,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ToggleRightPanelCommand { get; }
 
     public ICommand ToggleAlertsPanelCommand { get; }
+
+    public ICommand PlaceCeBuyCommand { get; }
+
+    public ICommand PlaceCeSellCommand { get; }
+
+    public ICommand PlacePeBuyCommand { get; }
+
+    public ICommand PlacePeSellCommand { get; }
+
+    public ICommand OpenOrdersPopupCommand { get; }
+
+    public ICommand OpenClosedOrdersPopupCommand { get; }
+
+    public ICommand OpenStrikeOrderScreenCommand { get; }
+
+    public ICommand ShowStrikeDetailsCommand { get; }
 
     public string Status
     {
@@ -584,6 +620,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         private set => SetField(ref liveScanStatusText, value);
     }
 
+    public string OrderServiceStatusText
+    {
+        get => orderServiceStatusText;
+        private set => SetField(ref orderServiceStatusText, value);
+    }
+
     public string ReplayOutcomeText
     {
         get => replayOutcomeText;
@@ -835,6 +877,70 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         };
 
         window.ShowDialog();
+    }
+
+    private async Task PlaceOrderAsync(OrderSide side, string optionSide)
+    {
+        await OpenStrikeOrderPopupAsync(side, optionSide);
+    }
+
+    private void OpenStrikeOrderScreen(object? parameter)
+    {
+        if (parameter is string action)
+        {
+            var mode = action.Contains("Buy", StringComparison.OrdinalIgnoreCase) ? OrderSide.Buy : OrderSide.Sell;
+            var optionSide = action.StartsWith("CE", StringComparison.OrdinalIgnoreCase) ? "CE" : "PE";
+            _ = OpenStrikeOrderPopupAsync(mode, optionSide);
+            return;
+        }
+
+        OpenOrdersPopup("Open");
+    }
+
+    private async Task OpenStrikeOrderPopupAsync(OrderSide side, string optionSide)
+    {
+        if (SelectedInstrument is null || SelectedStrike is null)
+        {
+            Status = "Select a symbol and strike before placing an order";
+            return;
+        }
+
+        var window = new OrderPopupWindow(
+            SelectedInstrument.Symbol,
+            FormatNumber(SelectedStrike.Strike),
+            $"{optionSide} {side}",
+            BuildStrikeDetailText(SelectedStrike),
+            optionSide.Equals("CE", StringComparison.OrdinalIgnoreCase) ? SelectedStrike.Call.LastPrice : SelectedStrike.Put.LastPrice,
+            SelectedInstrument.LotSize,
+            orderBroker,
+            orderOptions.Enabled)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        await window.LoadOrdersAsync();
+        window.ShowDialog();
+        Status = $"{optionSide} {side} popup opened";
+    }
+
+    private void OpenOrdersPopup(string mode)
+    {
+        var window = new OrderPopupWindow(
+            SelectedInstrument?.Symbol ?? "Market",
+            SelectedStrike is null ? "--" : FormatNumber(SelectedStrike.Strike),
+            mode,
+            SelectedStrike is null ? "Select a strike to place an order." : BuildStrikeDetailText(SelectedStrike),
+            SelectedStrike is null ? 0 : SelectedStrike.Call.LastPrice,
+            SelectedInstrument?.LotSize ?? 1,
+            orderBroker,
+            orderOptions.Enabled)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        _ = window.LoadOrdersAsync();
+        window.ShowDialog();
+        Status = $"{mode} orders popup opened";
     }
 
     private void StartLiveScanLoop()
@@ -1741,11 +1847,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
+        await BackfillRecentHistoricalSessionsAsync(selection.Date, 30);
+        selection = await LoadSelectedReplaySelectionAsync();
+        if (selection is null)
+        {
+            return;
+        }
+
         var summaryText = BuildSelectedDaySummary(selection);
         var window = new ReplaySummaryWindow(
             SelectedInstrument?.Symbol ?? "Market",
             selection.Date,
-            selection.StartFrom,
+            selection.Date,
             summaryText)
         {
             Owner = Application.Current?.MainWindow
@@ -1753,6 +1866,31 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         ReplayStatusText = $"Summary opened for {selection.Date:yyyy-MM-dd}";
         window.ShowDialog();
+    }
+
+    private async Task BackfillRecentHistoricalSessionsAsync(DateOnly selectedDate, int days)
+    {
+        if (SelectedInstrument is null)
+        {
+            return;
+        }
+
+        var fromDate = selectedDate.AddDays(-(Math.Max(1, days) - 1));
+        for (var date = fromDate; date <= selectedDate; date = date.AddDays(1))
+        {
+            var from = date.ToDateTime(new TimeOnly(9, 15));
+            var to = date.ToDateTime(new TimeOnly(15, 30));
+            var snapshots = await historicalDataSource.GetSnapshotsAsync(
+                SelectedInstrument.Symbol,
+                new DateTimeOffset(from, TimeZoneInfo.Local.GetUtcOffset(from)),
+                new DateTimeOffset(to, TimeZoneInfo.Local.GetUtcOffset(to)),
+                CancellationToken.None);
+
+            if (snapshots.Count > 0)
+            {
+                await sessionStore.SaveSnapshotsAsync(SelectedInstrument.Symbol, date, snapshots, CancellationToken.None);
+            }
+        }
     }
 
     private async Task<ReplaySelectionData?> LoadSelectedReplaySelectionAsync()
@@ -2440,6 +2578,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return $"No replay records for {selection.Date:yyyy-MM-dd}.";
         }
 
+        return BuildDailySummary(selection.Date, ordered).Text;
+    }
+
+    private static DailySummary BuildDailySummary(DateOnly date, IReadOnlyList<MarketSessionRecord> records)
+    {
+        var ordered = records.OrderBy(record => record.Timestamp).ToArray();
         var first = ordered.First();
         var last = ordered.Last();
         var high = ordered.MaxBy(record => record.Spot)!;
@@ -2520,27 +2664,26 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         var totalSetups = buySetups + sellSetups;
-        var summary = new StringBuilder();
-        summary.AppendLine($"{selection.Records.First().Symbol} selected day summary");
-        summary.AppendLine($"{selection.Date:yyyy-MM-dd} from {selection.StartFrom.ToLocalTime():HH:mm} to {last.Timestamp.ToLocalTime():HH:mm}");
-        summary.AppendLine($"Open {first.Spot:N2}, high {high.Spot:N2} at {high.Timestamp.ToLocalTime():HH:mm}, low {low.Spot:N2} at {low.Timestamp.ToLocalTime():HH:mm}, latest {last.Spot:N2}; net {FormatSigned(netMove)}.");
-        summary.AppendLine($"Calls {totalSetups:N0} ({buySetups} BUY, {sellSetups} SELL) | {targetHits} target hit, {stoplossHits} stoploss hit{(tradeClosed ? string.Empty : " | pending")}.");
+        var builder = new StringBuilder();
+        builder.AppendLine($"{date:yyyy-MM-dd} summary");
+        builder.AppendLine($"Open {first.Spot:N2}, high {high.Spot:N2} at {high.Timestamp.ToLocalTime():HH:mm}, low {low.Spot:N2} at {low.Timestamp.ToLocalTime():HH:mm}, latest {last.Spot:N2}; net {FormatSigned(netMove)}.");
+        builder.AppendLine($"Calls {totalSetups:N0} ({buySetups} BUY, {sellSetups} SELL) | {targetHits} target hit, {stoplossHits} stoploss hit{(tradeClosed ? string.Empty : " | pending")}.");
 
         if (trail.Count == 0)
         {
-            summary.AppendLine("No BUY/SELL call was generated in the selected range.");
+            builder.AppendLine("No BUY/SELL call was generated in the selected range.");
         }
         else
         {
-            summary.AppendLine($"Trail: {string.Join(" -> ", trail.TakeLast(6))}");
+            builder.AppendLine($"Trail: {string.Join(" -> ", trail.TakeLast(8))}");
         }
 
         if (!tradeClosed && activeLabel is not null)
         {
-            summary.AppendLine($"Current: {activeLabel} pending");
+            builder.AppendLine($"Current: {activeLabel} pending");
         }
 
-        return summary.ToString().TrimEnd();
+        return new DailySummary(date, buySetups, sellSetups, targetHits, stoplossHits, builder.ToString().TrimEnd());
     }
 
     private static bool IsClosedSignal(MarketSignalViewModel signal)
@@ -2588,6 +2731,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         DateOnly Date,
         DateTimeOffset StartFrom,
         IReadOnlyList<MarketSessionRecord> Records);
+
+    private sealed record ReplayRangeSelectionData(
+        DateOnly FromDate,
+        DateOnly ToDate,
+        IReadOnlyList<MarketSessionRecord> Records);
+
+    private sealed record DailySummary(
+        DateOnly Date,
+        int BuyCount,
+        int SellCount,
+        int TargetHits,
+        int StoplossHits,
+        string Text);
 
     private static long AggregateDepthPressure(MarketSnapshot snapshot)
     {
@@ -2966,6 +3122,8 @@ public sealed class CatalogInstrumentViewModel : INotifyPropertyChanged
     public string DisplayName => Source.DisplayName;
 
     public string SegmentLabel => Source.Segment.ToString();
+
+    public int LotSize => Source.LotSize;
 
     public bool IsFavorite
     {

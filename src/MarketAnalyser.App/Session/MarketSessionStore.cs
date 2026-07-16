@@ -83,6 +83,29 @@ public sealed class MarketSessionStore
 
     public async Task<IReadOnlyList<MarketSessionRecord>> LoadRecordsAsync(
         string symbol,
+        DateOnly fromDate,
+        DateOnly toDate,
+        CancellationToken cancellationToken)
+    {
+        if (toDate < fromDate)
+        {
+            return [];
+        }
+
+        var allRecords = new List<MarketSessionRecord>();
+        for (var date = fromDate; date <= toDate; date = date.AddDays(1))
+        {
+            var records = await LoadRecordsAsync(symbol, date, cancellationToken);
+            allRecords.AddRange(records);
+        }
+
+        return allRecords
+            .OrderBy(record => record.Timestamp)
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<MarketSessionRecord>> LoadRecordsAsync(
+        string symbol,
         DateOnly date,
         DateTimeOffset? startFrom,
         CancellationToken cancellationToken)
@@ -136,6 +159,29 @@ public sealed class MarketSessionStore
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(record, JsonOptions);
         await File.AppendAllTextAsync(path, json + Environment.NewLine, cancellationToken);
+    }
+
+    public async Task SaveSnapshotsAsync(
+        string symbol,
+        DateOnly date,
+        IReadOnlyList<MarketSnapshot> snapshots,
+        CancellationToken cancellationToken)
+    {
+        var path = GetSessionPath(symbol, date);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        var records = snapshots
+            .OrderBy(snapshot => snapshot.Timestamp)
+            .Select(snapshot => MarketSessionRecord.FromSnapshot(snapshot, null, new MarketSignalViewModel("WAIT", "Historical backfill", System.Windows.Media.Brushes.LightSlateGray)))
+            .ToArray();
+
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await using var writer = new StreamWriter(stream);
+        foreach (var record in records)
+        {
+            var json = JsonSerializer.Serialize(record, JsonOptions);
+            await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+        }
     }
 
     public string GetSessionPath(string symbol, DateOnly date)

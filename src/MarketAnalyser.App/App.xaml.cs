@@ -6,6 +6,7 @@ using MarketAnalyser.App.ViewModels;
 using MarketAnalyser.Core.Configuration;
 using MarketAnalyser.Core.Dhan;
 using MarketAnalyser.Core.Market;
+using MarketAnalyser.Core.Orders;
 
 namespace MarketAnalyser.App;
 
@@ -49,12 +50,15 @@ public partial class App : Application
             var options = AppOptions.Load(optionsPath);
             var dataSource = CreateDataSource(options);
             var historicalDataSource = CreateHistoricalDataSource(options);
+            var orderBroker = CreateOrderBroker(options);
             var viewModel = new MainWindowViewModel(
                 dataSource,
                 new AppPreferencesStore(),
                 new MarketSessionStore(),
                 new MovementTimelineStore(),
-                historicalDataSource);
+                historicalDataSource,
+                orderBroker,
+                options.Orders);
             var window = new MainWindow(viewModel);
             MainWindow = window;
             window.Show();
@@ -99,5 +103,15 @@ public partial class App : Application
                 BaseAddress = new Uri(options.DataSource.HistoricalRestBaseUrl.TrimEnd('/') + "/")
             },
             options.DataSource.HistoricalApiKey);
+    }
+
+    private static IOrderBroker CreateOrderBroker(AppOptions options)
+    {
+        var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri(options.Dhan.RestBaseUrl.TrimEnd('/') + "/")
+        };
+
+        return OrderBrokerFactory.Create(options, httpClient);
     }
 }

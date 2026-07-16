@@ -70,6 +70,11 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Background);
     }
 
+    private void ResetCenteredStrike()
+    {
+        centeredStrikeSymbol = null;
+    }
+
     private void LiveScanList_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { DataContext: LiveScanHitViewModel scanHit })

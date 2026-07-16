@@ -1,0 +1,511 @@
+
+get order by id
+get
+https://api.dhan.co/v2/orders/{order-id}
+curl --request GET \
+  --url https://api.dhan.co/v2/orders/{order-id} \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+{
+  "dhanClientId": "string",
+  "orderId": "string",
+  "exchangeOrderId": "string",
+  "correlationId": "string",
+  "orderStatus": "TRANSIT",
+  "transactionType": "BUY",
+  "exchangeSegment": "NSE_EQ",
+  "productType": "CNC",
+  "orderType": "LIMIT",
+  "validity": "DAY",
+  "tradingSymbol": "string",
+  "securityId": "string",
+  "quantity": -2147483648,
+  "disclosedQuantity": -2147483648,
+  "price": -3.402823669209385e+38,
+  "triggerPrice": -3.402823669209385e+38,
+  "afterMarketOrder": true,
+  "boProfitValue": -3.402823669209385e+38,
+  "boStopLossValue": -3.402823669209385e+38,
+  "legName": "ENTRY_LEG",
+  "createTime": "string",
+  "updateTime": "string",
+  "exchangeTime": "string",
+  "drvExpiryDate": "string",
+  "drvOptionType": "CALL",
+  "drvStrikePrice": -3.402823669209385e+38,
+  "omsErrorCode": "string",
+  "omsErrorDescription": "string",
+  "algoId": "string",
+  "remainingQuantity": -2147483648,
+  "averageTradedPrice": -3.402823669209385e+38,
+  "filledQty": -2147483648
+}
+
+
+
+modify pending order
+put
+https://api.dhan.co/v2/orders/{order-id}
+curl --request PUT \
+  --url https://api.dhan.co/v2/orders/{order-id} \
+  --header 'Accept: application/json' \
+  --header 'Content-Type: application/json' \
+  --header 'access-token: ' \
+  --data '{
+  "dhanClientId": "string",
+  "orderId": "string",
+  "orderType": "LIMIT",
+  "legName": "ENTRY_LEG",
+  "quantity": -2147483648,
+  "price": -3.402823669209385e+38,
+  "disclosedQuantity": -2147483648,
+  "triggerPrice": -3.402823669209385e+38,
+  "validity": "DAY"
+}'
+
+{
+  "orderId": "string",
+  "orderStatus": "TRANSIT"
+}
+
+cancel given order
+delete
+https://api.dhan.co/v2/orders/{order-id}
+curl --request DELETE \
+  --url https://api.dhan.co/v2/orders/{order-id} \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+{
+  "orderId": "string",
+  "orderStatus": "TRANSIT"
+}
+
+get current orders list
+get
+https://api.dhan.co/v2/orders
+curl --request GET \
+  --url https://api.dhan.co/v2/orders \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+[
+  {
+    "dhanClientId": "string",
+    "orderId": "string",
+    "exchangeOrderId": "string",
+    "correlationId": "string",
+    "orderStatus": "TRANSIT",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "orderType": "LIMIT",
+    "validity": "DAY",
+    "tradingSymbol": "string",
+    "securityId": "string",
+    "quantity": 0,
+    "disclosedQuantity": 0,
+    "price": 0,
+    "triggerPrice": 0,
+    "afterMarketOrder": true,
+    "boProfitValue": 0,
+    "boStopLossValue": 0,
+    "legName": "ENTRY_LEG",
+    "createTime": "string",
+    "updateTime": "string",
+    "exchangeTime": "string",
+    "drvExpiryDate": "string",
+    "drvOptionType": "CALL",
+    "drvStrikePrice": 0,
+    "omsErrorCode": "string",
+    "omsErrorDescription": "string",
+    "algoId": "string",
+    "remainingQuantity": 0,
+    "averageTradedPrice": 0,
+    "filledQty": 0
+  }
+]
+
+place an order
+post
+https://api.dhan.co/v2/orders
+
+
+curl --request POST \
+  --url https://api.dhan.co/v2/orders \
+  --header 'Accept: application/json' \
+  --header 'Content-Type: application/json' \
+  --header 'access-token: ' \
+  --data '{
+  "dhanClientId": "string",
+  "correlationId": "string",
+  "transactionType": "BUY",
+  "exchangeSegment": "NSE_EQ",
+  "productType": "CNC",
+  "orderType": "LIMIT",
+  "validity": "DAY",
+  "securityId": "string",
+  "quantity": -2147483648,
+  "disclosedQuantity": -2147483648,
+  "price": -3.402823669209385e+38,
+  "triggerPrice": -3.402823669209385e+38,
+  "afterMarketOrder": true,
+  "amoTime": "OPEN",
+  "boProfitValue": -3.402823669209385e+38,
+  "boStopLossValue": -3.402823669209385e+38
+}'
+
+{
+  "orderId": "string",
+  "orderStatus": "TRANSIT"
+}
+
+place slice order
+post
+https://api.dhan.co/v2/orders/slicing
+curl --request POST \
+  --url https://api.dhan.co/v2/orders/slicing \
+  --header 'Accept: application/json' \
+  --header 'Content-Type: application/json' \
+  --header 'access-token: ' \
+  --data '{
+  "dhanClientId": "string",
+  "correlationId": "string",
+  "transactionType": "BUY",
+  "exchangeSegment": "NSE_EQ",
+  "productType": "CNC",
+  "orderType": "LIMIT",
+  "validity": "DAY",
+  "securityId": "string",
+  "quantity": -2147483648,
+  "disclosedQuantity": -2147483648,
+  "price": -3.402823669209385e+38,
+  "triggerPrice": -3.402823669209385e+38,
+  "afterMarketOrder": true,
+  "amoTime": "OPEN",
+  "boProfitValue": -3.402823669209385e+38,
+  "boStopLossValue": -3.402823669209385e+38
+}'
+
+[
+  {
+    "orderId": "string",
+    "orderStatus": "TRANSIT"
+  }
+]
+
+get all trades
+get
+https://api.dhan.co/v2/trades
+
+curl --request GET \
+  --url https://api.dhan.co/v2/trades \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+
+[
+  {
+    "dhanClientId": "string",
+    "orderId": "string",
+    "exchangeOrderId": "string",
+    "exchangeTradeId": "string",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "orderType": "LIMIT",
+    "tradingSymbol": "string",
+    "customSymbol": "string",
+    "securityId": "string",
+    "tradedQuantity": 0,
+    "tradedPrice": 0,
+    "createTime": "string",
+    "updateTime": "string",
+    "exchangeTime": "string",
+    "drvExpiryDate": "string",
+    "drvOptionType": "CALL",
+    "drvStrikePrice": 0
+  }
+]
+
+get trade by order id
+get
+https://api.dhan.co/v2/trades/{order-id}
+
+curl --request GET \
+  --url https://api.dhan.co/v2/trades/{order-id} \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+
+[
+  {
+    "dhanClientId": "string",
+    "orderId": "string",
+    "exchangeOrderId": "string",
+    "exchangeTradeId": "string",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "orderType": "LIMIT",
+    "tradingSymbol": "string",
+    "customSymbol": "string",
+    "securityId": "string",
+    "tradedQuantity": 0,
+    "tradedPrice": 0,
+    "createTime": "string",
+    "updateTime": "string",
+    "exchangeTime": "string",
+    "drvExpiryDate": "string",
+    "drvOptionType": "CALL",
+    "drvStrikePrice": 0
+  }
+]
+
+get trade history
+get
+https://api.dhan.co/v2/trades/{from-date}/{to-date}/{page-number}
+
+curl --request GET \
+  --url https://api.dhan.co/v2/trades/{from-date}/{to-date}/{page-number} \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+
+[
+  {
+    "dhanClientId": "string",
+    "orderId": "string",
+    "exchangeOrderId": "string",
+    "exchangeTradeId": "string",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "orderType": "LIMIT",
+    "customSymbol": "string",
+    "securityId": "string",
+    "tradedQuantity": 0,
+    "tradedPrice": 0,
+    "isin": "string",
+    "instrument": "string",
+    "sebiTax": 0,
+    "stt": 0,
+    "brokerageCharges": 0,
+    "serviceTax": 0,
+    "exchangeTransactionCharges": 0,
+    "stampDuty": 0,
+    "createTime": "string",
+    "updateTime": "string",
+    "exchangeTime": "string",
+    "drvExpiryDate": "string",
+    "drvOptionType": "CALL",
+    "drvStrikePrice": 0
+  }
+]
+
+
+get current positions
+get
+https://api.dhan.co/v2/positions
+
+exit all position
+delete
+https://api.dhan.co/v2/position
+curl --request DELETE \
+  --url https://api.dhan.co/v2/positions \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+
+{
+  "message": "string",
+  "status": "string"
+}
+
+
+
+
+
+get current holdings
+get
+https://api.dhan.co/v2/holdings
+
+curl --request GET \
+  --url https://api.dhan.co/v2/holdings \
+  --header 'Accept: application/json' \
+  --header 'access-token: '
+
+[
+  {
+    "exchange": "NSE",
+    "tradingSymbol": "string",
+    "securityId": "string",
+    "isin": "string",
+    "totalQty": 0,
+    "dpQty": 0,
+    "t1Qty": 0,
+    "mtf_t1_qty": 0,
+    "mtf_qty": 0,
+    "availableQty": 0,
+    "collateralQty": 0,
+    "avgCostPrice": 0,
+    "lastTradedPrice": 0
+  }
+]
+
+
+
+
+orderStatus
+string
+Enum Values	Description
+TRANSIT	Did not reach the exchange server
+PENDING	Reached at exchange end, awaiting execution
+REJECTED	Rejected at exchange/broker’s end
+CANCELLED	Cancelled by user
+PART_TRADED	Partially Executed
+TRADED	Executed
+EXPIRED	Validity of order is expired
+
+
+transactionType
+string
+Signifies the type of transaction whether it's BUY or SELL
+
+Allowed values:
+BUY
+SELL
+
+exchangeSegment
+string
+Enums	Exchange	Segment
+NSE_EQ	NSE	Equity Cash
+NSE_FNO	NSE	Futures & Options
+BSE_EQ	BSE	Equity Cash
+BSE_FNO	BSE	Futures & Options
+MCX_COMM	MCX	Commodity
+
+productType
+string
+Enum Values	Description
+CNC	Cash & Carry for equity deliveries
+INTRADAY	Intraday for Equity, Futures & Options
+MARGIN	Carry Forward in Futures & Options
+CO	Cover Order; entry and stop loss
+BO	Bracket Order; entry, stop loss & target price
+MTF	Margin Traded Fund
+
+
+orderType
+string
+Enum Values	Description
+LIMIT	For Limit Order types
+MARKET	For market Order types
+STOP_LOSS	For Stop Loss Limit orders
+STOP_LOSS_MARKET	For Stop Loss Market orders
+
+validity
+string
+Enum Values	Description
+DAY	Valid till end of day
+IOC	Immediate or Cancel
+
+
+
+tradingSymbol
+string
+Exchange standard trading symbol
+
+securityId
+string
+Exchange standard identification for each scrip
+
+quantity
+integer<int32>
+Number of shares for the order
+
+disclosedQuantity
+integer<int32>
+Number shares visible in the market depth
+
+price
+number<float>
+Price at which the order is requested to execute
+
+triggerPrice
+number<float>
+Price at which the order is triggered
+
+afterMarketOrder
+boolean
+Flag to inform that the order placed is After Market Order
+
+boProfitValue
+number<float>
+Bracket order Target price
+
+boStopLossValue
+number<float>
+Bracket Order/Cover Order Stop Loss Price
+
+legName
+string
+Order leg where modification is to be done
+
+Allowed values:
+ENTRY_LEG
+STOP_LOSS_LEG
+TARGET_LEG
+NA
+createTime
+string
+Time at which the record is created
+
+updateTime
+string
+Time at which the record is updated
+
+exchangeTime
+string
+Time at which order reached at exchange end
+
+drvExpiryDate
+string
+For F&O, expiry date of contract
+
+drvOptionType
+string
+For Options, type CALL or PUT
+
+Allowed values:
+CALL
+PUT
+NA
+drvStrikePrice
+number<float>
+For Options, Strike Price
+
+omsErrorCode
+string
+When order is rejected or failed, omsErrorCode would be populated
+
+omsErrorDescription
+string
+When order is rejected or failed, omsErrorDescription would be populated
+
+algoId
+string
+Algo_ID
+
+remainingQuantity
+integer<int32>
+Number of shares yet to be traded for the order
+
+averageTradedPrice
+number<float>
+Average price at which order is traded
+
+filledQty
+integer<int32>
+Filled Quantity
+
+
+
+
+
+
+
