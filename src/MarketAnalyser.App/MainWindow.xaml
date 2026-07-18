@@ -10,6 +10,8 @@
         Height="820"
         MinWidth="1120"
         MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         Background="{StaticResource AppBackgroundBrush}"
         FontFamily="Segoe UI">
     <Window.Resources>

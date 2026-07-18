@@ -132,7 +132,25 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
             [request.ExchangeSegment] = [request.SecurityId]
         });
 
-        return await SendRawAsync(message, cancellationToken);
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            System.Diagnostics.Trace.WriteLine($"Dhan quote rate limited for {request.ExchangeSegment}:{request.SecurityId}");
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        var trimmed = body.AsSpan().TrimStart();
+        if (trimmed.Length == 0 || (trimmed[0] != '{' && trimmed[0] != '['))
+        {
+            var preview = body.Length <= 160 ? body : body[..160];
+            throw new InvalidOperationException($"Dhan returned a non-JSON response. Preview: {preview}");
+        }
+
+        return body;
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)

@@ -100,26 +100,46 @@ public sealed class AppPreferencesStore
 public static class AppExceptionLogger
 {
     private static readonly object Gate = new();
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MarketAnalyser",
+        "error.log");
 
     public static void Log(Exception exception)
     {
         try
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MarketAnalyser");
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, "error.log");
-            var message = $"{DateTimeOffset.Now:O}{Environment.NewLine}{exception}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}";
-
-            lock (Gate)
-            {
-                File.AppendAllText(path, message);
-            }
+            Write($"{DateTimeOffset.Now:O}{Environment.NewLine}{exception}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}");
         }
         catch
         {
             // Logging must never become the reason the app exits.
+        }
+    }
+
+    public static void LogProgress(string message)
+    {
+        try
+        {
+            Write($"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never become the reason the app exits.
+        }
+    }
+
+    private static void Write(string message)
+    {
+        var directory = Path.GetDirectoryName(LogPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        lock (Gate)
+        {
+            File.AppendAllText(LogPath, message);
         }
     }
 }

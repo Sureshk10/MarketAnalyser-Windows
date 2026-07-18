@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Diagnostics;
 using MarketAnalyser.Core.Dhan;
 
 namespace MarketAnalyser.Core.Market;
@@ -6,6 +9,8 @@ public sealed class DhanHistoricalMarketDataSource(
     InstrumentCatalog catalog,
     DhanClient dhanClient) : IHistoricalMarketDataSource
 {
+    private static readonly TimeSpan MaxChunkSpan = TimeSpan.FromDays(90);
+
     public async Task<IReadOnlyList<MarketSnapshot>> GetSnapshotsAsync(
         string symbol,
         DateTimeOffset from,
@@ -30,31 +35,51 @@ public sealed class DhanHistoricalMarketDataSource(
         }
 
         var snapshots = new List<MarketSnapshot>();
-        for (var day = DateOnly.FromDateTime(from.LocalDateTime); day <= DateOnly.FromDateTime(to.LocalDateTime); day = day.AddDays(1))
+        var cursor = from;
+        while (cursor <= to)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var dayFrom = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 15)), TimeZoneInfo.Local.GetUtcOffset(day.ToDateTime(new TimeOnly(9, 15))));
-            var dayTo = new DateTimeOffset(day.ToDateTime(new TimeOnly(15, 30)), TimeZoneInfo.Local.GetUtcOffset(day.ToDateTime(new TimeOnly(15, 30))));
+            var chunkEnd = cursor.Add(MaxChunkSpan);
+            if (chunkEnd > to)
+            {
+                chunkEnd = to;
+            }
 
-            var response = await dhanClient.GetIntradayHistoricalAsync(
-                new DhanIntradayHistoricalRequest(
-                    instrument.UnderlyingSecurityId,
-                    instrument.UnderlyingSegment,
-                    historicalInstrument,
-                    1,
-                    true,
-                    dayFrom,
-                    dayTo),
-                cancellationToken);
+            DhanIntradayHistoricalResponse? response;
+            try
+            {
+                response = await dhanClient.GetIntradayHistoricalAsync(
+                    new DhanIntradayHistoricalRequest(
+                        instrument.UnderlyingSecurityId,
+                        instrument.UnderlyingSegment,
+                        historicalInstrument,
+                        1,
+                        true,
+                        cursor,
+                        chunkEnd),
+                    cancellationToken);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {cursor:yyyy-MM-dd}");
+                return snapshots;
+            }
+            catch (HttpRequestException ex) when (ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase))
+            {
+                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {cursor:yyyy-MM-dd}");
+                return snapshots;
+            }
 
             if (response is null || response.Close.Count == 0)
             {
+                cursor = chunkEnd.AddMilliseconds(1);
                 continue;
             }
 
-            var points = BuildDaySnapshots(symbol, instrument, response, day);
+            var points = BuildSnapshots(symbol, instrument, response);
             snapshots.AddRange(points.Where(item => item.Timestamp >= from && item.Timestamp <= to));
+            cursor = chunkEnd.AddMilliseconds(1);
         }
 
         return snapshots
@@ -62,11 +87,10 @@ public sealed class DhanHistoricalMarketDataSource(
             .ToArray();
     }
 
-    private static IReadOnlyList<MarketSnapshot> BuildDaySnapshots(
+    private static IReadOnlyList<MarketSnapshot> BuildSnapshots(
         string symbol,
         InstrumentSummary instrument,
-        DhanIntradayHistoricalResponse response,
-        DateOnly day)
+        DhanIntradayHistoricalResponse response)
     {
         var snapshots = new List<MarketSnapshot>();
         decimal? previousClose = null;
@@ -88,7 +112,7 @@ public sealed class DhanHistoricalMarketDataSource(
                 continue;
             }
 
-            var timestamp = ConvertTimestamp(response, day, i);
+            var timestamp = ConvertTimestamp(response, i);
             var spotChange = previousClose is null ? 0 : close - previousClose.Value;
             var chartPoint = new ChartPoint(timestamp, close);
             var openInterest = response.OpenInterest.Count > i ? response.OpenInterest[i] : 0;
@@ -114,7 +138,7 @@ public sealed class DhanHistoricalMarketDataSource(
         return snapshots;
     }
 
-    private static DateTimeOffset ConvertTimestamp(DhanHistoricalResponse response, DateOnly day, int index)
+    private static DateTimeOffset ConvertTimestamp(DhanHistoricalResponse response, int index)
     {
         if (response.Timestamp.Count > index)
         {
@@ -125,11 +149,10 @@ public sealed class DhanHistoricalMarketDataSource(
             }
         }
 
-        var fallback = day.ToDateTime(new TimeOnly(9, 15)).AddMinutes(index);
-        return new DateTimeOffset(fallback, TimeZoneInfo.Local.GetUtcOffset(fallback));
+        return DateTimeOffset.UnixEpoch.AddMinutes(index).ToLocalTime();
     }
 
-    private static DateTimeOffset ConvertTimestamp(DhanIntradayHistoricalResponse response, DateOnly day, int index)
+    private static DateTimeOffset ConvertTimestamp(DhanIntradayHistoricalResponse response, int index)
     {
         if (response.Timestamp.Count > index)
         {
@@ -140,8 +163,7 @@ public sealed class DhanHistoricalMarketDataSource(
             }
         }
 
-        var fallback = day.ToDateTime(new TimeOnly(9, 15)).AddMinutes(index);
-        return new DateTimeOffset(fallback, TimeZoneInfo.Local.GetUtcOffset(fallback));
+        return DateTimeOffset.UnixEpoch.AddMinutes(index).ToLocalTime();
     }
 
     private static string? GetHistoricalInstrumentType(InstrumentSummary instrument)

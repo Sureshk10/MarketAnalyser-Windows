@@ -80,6 +80,24 @@ public sealed class HistoricalSupportResistanceCacheStore
         await JsonSerializer.SerializeAsync(stream, merged, JsonOptions, cancellationToken);
     }
 
+    public async Task<DateTimeOffset?> GetLatestTimestampAsync(
+        string symbol,
+        string timeframe,
+        CancellationToken cancellationToken)
+    {
+        var path = GetPath(symbol, timeframe);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var cached = await JsonSerializer.DeserializeAsync<IReadOnlyList<MarketSnapshot>>(stream, JsonOptions, cancellationToken);
+        return cached is null || cached.Count == 0
+            ? null
+            : cached.MaxBy(snapshot => snapshot.Timestamp)?.Timestamp;
+    }
+
     public bool HasCache(string symbol, string timeframe)
     {
         return File.Exists(GetPath(symbol, timeframe));
