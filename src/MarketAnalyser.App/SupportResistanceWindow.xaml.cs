@@ -39,7 +39,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         DataContext = this;
         Title = $"S/R Scanner - {favorites.Count} favorites";
         Rows = rows;
-        SelectedTimeframe = "1m";
+        SelectedTimeframe = "3m";
         TimeframeOptions = ["1m", "3m", "5m", "15m", "1h", "4h", "1d", "1w", "1M"];
         Loaded += async (_, _) => await RefreshAsync();
     }
@@ -78,7 +78,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private string selectedTimeframe = "1m";
+    private string selectedTimeframe = "3m";
     private string statusText = "Preparing scanner...";
 
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
