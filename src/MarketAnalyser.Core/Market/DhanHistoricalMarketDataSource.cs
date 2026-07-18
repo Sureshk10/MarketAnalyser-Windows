@@ -9,7 +9,8 @@ public sealed class DhanHistoricalMarketDataSource(
     InstrumentCatalog catalog,
     DhanClient dhanClient) : IHistoricalMarketDataSource
 {
-    private static readonly TimeSpan MaxChunkSpan = TimeSpan.FromDays(90);
+    private static readonly TimeOnly MarketOpenTime = new(9, 15);
+    private static readonly TimeOnly MarketCloseTime = new(15, 30);
 
     public async Task<IReadOnlyList<MarketSnapshot>> GetSnapshotsAsync(
         string symbol,
@@ -35,15 +36,21 @@ public sealed class DhanHistoricalMarketDataSource(
         }
 
         var snapshots = new List<MarketSnapshot>();
-        var cursor = from;
-        while (cursor <= to)
+        var dayCursor = from.Date;
+        var endDay = to.Date;
+        while (dayCursor <= endDay)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var chunkEnd = cursor.Add(MaxChunkSpan);
-            if (chunkEnd > to)
+            var tradingStart = new DateTimeOffset(dayCursor.Year, dayCursor.Month, dayCursor.Day, MarketOpenTime.Hour, MarketOpenTime.Minute, 0, from.Offset);
+            var tradingEnd = new DateTimeOffset(dayCursor.Year, dayCursor.Month, dayCursor.Day, MarketCloseTime.Hour, MarketCloseTime.Minute, 0, to.Offset);
+            var requestFrom = from > tradingStart ? from : tradingStart;
+            var requestTo = to < tradingEnd ? to : tradingEnd;
+
+            if (requestTo < requestFrom)
             {
-                chunkEnd = to;
+                dayCursor = dayCursor.AddDays(1);
+                continue;
             }
 
             DhanIntradayHistoricalResponse? response;
@@ -56,30 +63,30 @@ public sealed class DhanHistoricalMarketDataSource(
                         historicalInstrument,
                         1,
                         true,
-                        cursor,
-                        chunkEnd),
+                        requestFrom,
+                        requestTo),
                     cancellationToken);
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {cursor:yyyy-MM-dd}");
+                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {dayCursor:yyyy-MM-dd}");
                 return snapshots;
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase))
             {
-                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {cursor:yyyy-MM-dd}");
+                Trace.WriteLine($"Dhan historical rate limited for {symbol} on {dayCursor:yyyy-MM-dd}");
                 return snapshots;
             }
 
             if (response is null || response.Close.Count == 0)
             {
-                cursor = chunkEnd.AddMilliseconds(1);
+                dayCursor = dayCursor.AddDays(1);
                 continue;
             }
 
             var points = BuildSnapshots(symbol, instrument, response);
             snapshots.AddRange(points.Where(item => item.Timestamp >= from && item.Timestamp <= to));
-            cursor = chunkEnd.AddMilliseconds(1);
+            dayCursor = dayCursor.AddDays(1);
         }
 
         return snapshots
@@ -168,8 +175,11 @@ public sealed class DhanHistoricalMarketDataSource(
 
     private static string? GetHistoricalInstrumentType(InstrumentSummary instrument)
     {
-        return instrument.Segment is MarketSegment.Nifty or MarketSegment.BankNifty or MarketSegment.Sensex or MarketSegment.FinNifty
-            ? "INDEX"
-            : null;
+        return instrument.Segment switch
+        {
+            MarketSegment.Nifty or MarketSegment.BankNifty or MarketSegment.Sensex or MarketSegment.FinNifty => "INDEX",
+            MarketSegment.Stock => "EQUITY",
+            _ => null
+        };
     }
 }

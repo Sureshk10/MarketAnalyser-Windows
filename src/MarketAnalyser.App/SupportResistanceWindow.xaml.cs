@@ -23,6 +23,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
     private static readonly TimeSpan SymbolFetchDelay = TimeSpan.FromMilliseconds(350);
     private static readonly TimeOnly MarketOpenTime = new(9, 15);
     private static readonly TimeOnly MarketCloseTime = new(15, 30);
+    private bool suppressFallbacksAfterClear;
 
     public SupportResistanceWindow(
         IReadOnlyList<CatalogInstrumentViewModel> favorites,
@@ -87,6 +88,30 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         await RefreshAsync();
     }
 
+    private async void ClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            StatusText = "Clearing local cache...";
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+            await cacheStore.ClearAsync(CancellationToken.None);
+            Rows.Clear();
+            suppressFallbacksAfterClear = true;
+            LogProgress("[S/R] local cache cleared");
+            StatusText = "Local cache cleared";
+        }
+        catch (Exception ex)
+        {
+            AppExceptionLogger.Log(ex);
+            StatusText = "Clear failed";
+            MessageBox.Show(
+                $"Could not clear local cache: {ex.Message}",
+                "Market Analyser",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
     private async void TimeframeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (IsLoaded)
@@ -104,6 +129,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            suppressFallbacksAfterClear = suppressFallbacksAfterClear;
             StatusText = $"Preparing {SelectedTimeframe} scan...";
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
             LogProgress($"[S/R] refresh start timeframe={SelectedTimeframe} favorites={favorites.Count}");
@@ -140,66 +166,79 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
             StatusText = ex.Message;
             LogProgress($"[S/R] refresh error {ex.Message}");
         }
+        finally
+        {
+            suppressFallbacksAfterClear = false;
+        }
     }
 
     private async Task<SupportResistanceRow> BuildRowAsync(CatalogInstrumentViewModel item, string timeframe)
     {
         try
         {
+            var skipFallbacks = suppressFallbacksAfterClear;
             var window = ResolveLookback(timeframe);
             var now = DateTimeOffset.Now;
             var to = now;
             var from = to.AddDays(-window.days);
             LogProgress($"[S/R] cache lookup {item.Symbol} {timeframe} {from:O}..{to:O}");
             var snapshots = await cacheStore.LoadAsync(item.Symbol, timeframe, from, to, CancellationToken.None);
-            var latestCachedTimestamp = await cacheStore.GetLatestTimestampAsync(item.Symbol, timeframe, CancellationToken.None);
+            var metadata = await cacheStore.GetMetadataAsync(item.Symbol, timeframe, CancellationToken.None);
+            var latestCachedTimestamp = metadata?.LastSyncedThrough ?? await cacheStore.GetLatestTimestampAsync(item.Symbol, timeframe, CancellationToken.None);
             var missingFrom = latestCachedTimestamp is null
                 ? from
                 : latestCachedTimestamp.Value.AddMinutes(1);
             var cacheExists = latestCachedTimestamp is not null;
-            var shouldFetch = ShouldFetchHistoricalData(now, latestCachedTimestamp);
+            var isAfterMarketClose = TimeOnly.FromTimeSpan(now.ToLocalTime().TimeOfDay) >= MarketCloseTime;
+            var shouldFetch = ShouldFetchHistoricalData(now, metadata);
+            var shouldFetchFromDhan = !cacheExists || (!isAfterMarketClose && shouldFetch);
 
-            if (shouldFetch && (snapshots.Count == 0 || latestCachedTimestamp is not null))
+            if (shouldFetchFromDhan)
             {
-                if (latestCachedTimestamp is null)
+                var fetchFrom = cacheExists ? missingFrom : from;
+                StatusText = cacheExists
+                    ? $"Updating cache from Dhan for {item.DisplayName}..."
+                    : $"Fetching from Dhan for {item.DisplayName}...";
+                LogProgress($"[S/R] {(!cacheExists ? "no cache" : $"cache tail {item.Symbol} through {latestCachedTimestamp:O}")}, fetching {fetchFrom:O}..{to:O}");
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+                var fetched = await historicalDataSource.GetSnapshotsAsync(item.Symbol, fetchFrom, to, CancellationToken.None);
+                if (fetched.Count > 0)
                 {
-                    StatusText = $"Fetching from Dhan for {item.DisplayName}...";
-                    LogProgress($"[S/R] no cache tail for {item.Symbol}, fetching {missingFrom:O}..{to:O}");
+                    snapshots = cacheExists
+                        ? snapshots
+                            .Concat(fetched)
+                            .GroupBy(snapshot => snapshot.Timestamp)
+                            .Select(group => group.Last())
+                            .OrderBy(snapshot => snapshot.Timestamp)
+                            .ToArray()
+                        : fetched
+                            .OrderBy(snapshot => snapshot.Timestamp)
+                            .ToArray();
+
+                    LogProgress($"[S/R] historical fetched {item.Symbol} count={snapshots.Count}, caching");
+                    await cacheStore.SaveAsync(item.Symbol, timeframe, snapshots, CancellationToken.None);
                 }
                 else
                 {
-                    StatusText = $"Updating cache from Dhan for {item.DisplayName}...";
-                    LogProgress($"[S/R] cache tail {item.Symbol} through {latestCachedTimestamp:O}, fetching {missingFrom:O}..{to:O}");
-                }
-
-                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
-                var fetched = await historicalDataSource.GetSnapshotsAsync(item.Symbol, missingFrom, to, CancellationToken.None);
-                if (fetched.Count > 0)
-                {
-                    snapshots = snapshots
-                        .Concat(fetched)
-                        .GroupBy(snapshot => snapshot.Timestamp)
-                        .Select(group => group.Last())
-                        .OrderBy(snapshot => snapshot.Timestamp)
-                        .ToArray();
-                }
-
-                if (snapshots.Count > 0)
-                {
-                    LogProgress($"[S/R] historical fetched {item.Symbol} count={snapshots.Count}, caching");
-                    await cacheStore.SaveAsync(item.Symbol, timeframe, snapshots, CancellationToken.None);
+                    LogProgress($"[S/R] historical fetch returned empty for {item.Symbol}");
                 }
             }
             else if (cacheExists)
             {
                 LogProgress($"[S/R] cache current for {item.Symbol} through {latestCachedTimestamp:O}; skipping Dhan fetch");
             }
-            else if (TimeOnly.FromTimeSpan(now.ToLocalTime().TimeOfDay) >= MarketCloseTime)
+
+            if (isAfterMarketClose && cacheExists)
             {
-                LogProgress($"[S/R] market closed and no cache tail for {item.Symbol}; using local fallback only");
+                if (snapshots.Count == 0)
+                {
+                    return SupportResistanceRow.Empty(item.DisplayName, item.Symbol, $"Cached data unavailable for {timeframe}");
+                }
+
+                return BuildRowFromSnapshots(item, timeframe, snapshots);
             }
 
-            if (snapshots.Count == 0)
+            if (snapshots.Count == 0 && !skipFallbacks && cacheExists)
             {
                 StatusText = $"Using session data for {item.DisplayName}...";
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
@@ -236,7 +275,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
                 }
             }
 
-            if (snapshots.Count == 0)
+            if (snapshots.Count == 0 && !skipFallbacks && cacheExists)
             {
                 StatusText = $"Using live fallback for {item.DisplayName}...";
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
@@ -245,6 +284,10 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
                 snapshots = liveSnapshot is null
                     ? []
                     : [liveSnapshot];
+            }
+            else if (snapshots.Count == 0 && skipFallbacks)
+            {
+                LogProgress($"[S/R] fallback suppressed for {item.Symbol} after clear");
             }
             if (snapshots.Count == 0)
             {
@@ -293,15 +336,51 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private static bool ShouldFetchHistoricalData(DateTimeOffset now, DateTimeOffset? latestCachedTimestamp)
+    private static SupportResistanceRow BuildRowFromSnapshots(
+        CatalogInstrumentViewModel item,
+        string timeframe,
+        IReadOnlyList<MarketSnapshot> snapshots)
     {
-        if (latestCachedTimestamp is null)
+        var candles = AggregateCandles(snapshots, timeframe);
+        if (candles.Count == 0)
+        {
+            return SupportResistanceRow.Empty(item.DisplayName, item.Symbol, $"No {timeframe} candles");
+        }
+
+        var spot = candles.Last().Close;
+        var support = candles.MinBy(candle => candle.Low)?.Low ?? spot;
+        var resistance = candles.MaxBy(candle => candle.High)?.High ?? spot;
+        var priceSeries = candles.Select(candle => new ChartPoint(candle.End, candle.Close)).ToArray();
+        var volumeSeries = candles.Select(candle => new ChartPoint(candle.End, candle.Volume)).ToArray();
+        var rsi = CalculateRsi(priceSeries, 14);
+        var vwap = CalculateVwap(priceSeries, volumeSeries);
+        var signal = BuildSignal(spot, support, resistance, priceSeries, rsi, vwap);
+        var near = BuildNearText(spot, support, resistance);
+
+        return new SupportResistanceRow(
+            item.DisplayName,
+            item.Symbol,
+            FormatNumber(spot),
+            FormatNumber(support),
+            FormatNumber(resistance),
+            signal.Label,
+            signal.Foreground,
+            near,
+            rsi is null ? "--" : rsi.Value.ToString("N1", CultureInfo.CurrentCulture),
+            vwap is null ? "--" : vwap.Value.ToString("N2", CultureInfo.CurrentCulture),
+            FormatCompactCount(volumeSeries.LastOrDefault()?.Value ?? 0),
+            timeframe);
+    }
+
+    private static bool ShouldFetchHistoricalData(DateTimeOffset now, HistoricalCacheMetadata? metadata)
+    {
+        if (metadata?.LastSyncedThrough is null)
         {
             return true;
         }
 
         var localNow = now.ToLocalTime();
-        var localLatest = latestCachedTimestamp.Value.ToLocalTime();
+        var localLatest = metadata.LastSyncedThrough.Value.ToLocalTime();
         var nowTime = TimeOnly.FromTimeSpan(localNow.TimeOfDay);
         var latestTime = TimeOnly.FromTimeSpan(localLatest.TimeOfDay);
         var today = DateOnly.FromDateTime(localNow.DateTime);
@@ -331,16 +410,16 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
     {
         return timeframe switch
         {
-            "1m" => (2, "2D lookback"),
-            "3m" => (4, "4D lookback"),
-            "5m" => (7, "7D lookback"),
-            "15m" => (10, "10D lookback"),
-            "1h" => (30, "30D lookback"),
-            "4h" => (90, "90D lookback"),
-            "1d" => (180, "180D lookback"),
-            "1w" => (365, "1Y lookback"),
-            "1M" => (730, "2Y lookback"),
-            _ => (10, "10D lookback")
+            "1m" => (3, "3D lookback"),
+            "3m" => (5, "5D lookback"),
+            "5m" => (8, "8D lookback"),
+            "15m" => (12, "12D lookback"),
+            "1h" => (20, "20D lookback"),
+            "4h" => (45, "45D lookback"),
+            "1d" => (90, "90D lookback"),
+            "1w" => (180, "180D lookback"),
+            "1M" => (365, "1Y lookback"),
+            _ => (12, "12D lookback")
         };
     }
 

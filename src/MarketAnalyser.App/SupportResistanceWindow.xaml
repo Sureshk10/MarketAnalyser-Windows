@@ -187,6 +187,7 @@
                                   SelectionChanged="TimeframeCombo_SelectionChanged"
                                   Margin="0,0,8,0" />
                         <Button Content="Refresh" Click="RefreshButton_Click" Style="{StaticResource PopupButtonStyle}" Margin="0,0,8,0" />
+                        <Button Content="Clear" Click="ClearButton_Click" Style="{StaticResource PopupButtonStyle}" Margin="0,0,8,0" />
                         <Button Content="Close" Click="CloseButton_Click" Style="{StaticResource PopupButtonStyle}" />
                     </StackPanel>
                 </Grid>

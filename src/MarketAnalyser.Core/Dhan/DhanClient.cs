@@ -74,6 +74,7 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
         });
 
         var body = await SendRawAsync(message, cancellationToken);
+        WriteResponsePreview("charts/intraday", body);
         using var document = JsonDocument.Parse(body);
         var root = document.RootElement;
 
@@ -184,6 +185,12 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
         return body;
     }
 
+    private static void WriteResponsePreview(string endpoint, string body)
+    {
+        var preview = body.Length <= 500 ? body : body[..500];
+        System.Diagnostics.Trace.WriteLine($"Dhan raw response [{endpoint}] len={body.Length}: {preview}");
+    }
+
     private static IReadOnlyList<decimal> ReadDecimalArray(JsonElement root, string propertyName)
     {
         if (!root.TryGetProperty(propertyName, out var array) || array.ValueKind != JsonValueKind.Array)
@@ -238,10 +245,49 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
         value = 0;
         return element.ValueKind switch
         {
-            JsonValueKind.Number => element.TryGetInt64(out value),
-            JsonValueKind.String => long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value),
+            JsonValueKind.Number => TryReadLongNumber(element, out value),
+            JsonValueKind.String => TryReadLongString(element.GetString(), out value),
             _ => false
         };
+    }
+
+    private static bool TryReadLongNumber(JsonElement element, out long value)
+    {
+        if (element.TryGetInt64(out value))
+        {
+            return true;
+        }
+
+        if (element.TryGetDecimal(out var decimalValue))
+        {
+            value = decimal.ToInt64(decimalValue);
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static bool TryReadLongString(string? text, out long value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        if (decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
+        {
+            value = decimal.ToInt64(decimalValue);
+            return true;
+        }
+
+        return false;
     }
 }
 

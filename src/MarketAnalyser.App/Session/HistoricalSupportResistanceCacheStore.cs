@@ -78,6 +78,7 @@ public sealed class HistoricalSupportResistanceCacheStore
 
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await JsonSerializer.SerializeAsync(stream, merged, JsonOptions, cancellationToken);
+        await SaveMetadataAsync(symbol, timeframe, new HistoricalCacheMetadata(DateTimeOffset.Now, merged.MaxBy(item => item.Timestamp)?.Timestamp), cancellationToken);
     }
 
     public async Task<DateTimeOffset?> GetLatestTimestampAsync(
@@ -98,15 +99,83 @@ public sealed class HistoricalSupportResistanceCacheStore
             : cached.MaxBy(snapshot => snapshot.Timestamp)?.Timestamp;
     }
 
+    public async Task<HistoricalCacheMetadata?> GetMetadataAsync(
+        string symbol,
+        string timeframe,
+        CancellationToken cancellationToken)
+    {
+        var path = GetMetadataPath(symbol, timeframe);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        return await JsonSerializer.DeserializeAsync<HistoricalCacheMetadata>(stream, JsonOptions, cancellationToken);
+    }
+
     public bool HasCache(string symbol, string timeframe)
     {
         return File.Exists(GetPath(symbol, timeframe));
     }
 
+    public Task ClearAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (Directory.Exists(rootDirectory))
+        {
+            Directory.Delete(rootDirectory, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
     private string GetPath(string symbol, string timeframe)
     {
         var safeSymbol = string.Concat(symbol.Where(char.IsLetterOrDigit)).ToUpperInvariant();
-        var safeTimeframe = string.Concat(timeframe.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+        var safeTimeframe = NormalizeTimeframeKey(timeframe);
         return Path.Combine(rootDirectory, safeSymbol, $"{safeTimeframe}.json");
     }
+
+    private async Task SaveMetadataAsync(
+        string symbol,
+        string timeframe,
+        HistoricalCacheMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        var path = GetMetadataPath(symbol, timeframe);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await JsonSerializer.SerializeAsync(stream, metadata, JsonOptions, cancellationToken);
+    }
+
+    private string GetMetadataPath(string symbol, string timeframe)
+    {
+        var safeSymbol = string.Concat(symbol.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+        var safeTimeframe = NormalizeTimeframeKey(timeframe);
+        return Path.Combine(rootDirectory, safeSymbol, $"{safeTimeframe}.meta.json");
+    }
+
+    private static string NormalizeTimeframeKey(string timeframe)
+    {
+        var trimmed = timeframe.Trim();
+        return trimmed switch
+        {
+            "1m" => "1m",
+            "3m" => "3m",
+            "5m" => "5m",
+            "15m" => "15m",
+            "1h" => "1h",
+            "4h" => "4h",
+            "1d" => "1d",
+            "1w" => "1w",
+            "1M" => "1M",
+            _ => string.Concat(trimmed.Where(char.IsLetterOrDigit))
+        };
+    }
 }
+
+public sealed record HistoricalCacheMetadata(
+    DateTimeOffset LastSyncAt,
+    DateTimeOffset? LastSyncedThrough);
