@@ -156,6 +156,7 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
             var missingFrom = latestCachedTimestamp is null
                 ? from
                 : latestCachedTimestamp.Value.AddMinutes(1);
+            var cacheExists = latestCachedTimestamp is not null;
             var shouldFetch = ShouldFetchHistoricalData(now, latestCachedTimestamp);
 
             if (shouldFetch && (snapshots.Count == 0 || latestCachedTimestamp is not null))
@@ -189,9 +190,13 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
                     await cacheStore.SaveAsync(item.Symbol, timeframe, snapshots, CancellationToken.None);
                 }
             }
-            else if (latestCachedTimestamp is not null)
+            else if (cacheExists)
             {
                 LogProgress($"[S/R] cache current for {item.Symbol} through {latestCachedTimestamp:O}; skipping Dhan fetch");
+            }
+            else if (TimeOnly.FromTimeSpan(now.ToLocalTime().TimeOfDay) >= MarketCloseTime)
+            {
+                LogProgress($"[S/R] market closed and no cache tail for {item.Symbol}; using local fallback only");
             }
 
             if (snapshots.Count == 0)
@@ -302,12 +307,12 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         var today = DateOnly.FromDateTime(localNow.DateTime);
         var latestDate = DateOnly.FromDateTime(localLatest.DateTime);
 
-        if (nowTime < MarketOpenTime)
+        if (nowTime >= MarketCloseTime)
         {
-            return latestDate >= today;
+            return false;
         }
 
-        if (nowTime >= MarketCloseTime)
+        if (nowTime < MarketOpenTime)
         {
             return latestDate >= today;
         }
