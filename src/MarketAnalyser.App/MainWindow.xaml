@@ -413,9 +413,12 @@
                         <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding RightPanelToggleText}"
                                 Command="{Binding ToggleRightPanelCommand}" />
-                        <Button Style="{StaticResource SmallChromeButton}"
+                            <Button Style="{StaticResource SmallChromeButton}"
                                 Content="{Binding SessionReviewPanelToggleText}"
                                 Command="{Binding ToggleSessionReviewPanelCommand}" />
+                            <Button Style="{StaticResource SmallChromeButton}"
+                                Content="S/R"
+                                Command="{Binding OpenSupportResistanceCommand}" />
                             <Button Style="{StaticResource SmallChromeButton}"
                                 Content="Orders"
                                 Command="{Binding OpenOrdersPopupCommand}" />

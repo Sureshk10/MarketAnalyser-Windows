@@ -124,6 +124,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ReplayPlayPauseCommand = new RelayCommand<object>(_ => ToggleReplayPlayback());
         ResumeLiveCommand = new RelayCommand<object>(_ => ResumeLive());
         OpenTradingViewChartCommand = new RelayCommand<object>(_ => OpenTradingViewChart());
+        OpenSupportResistanceCommand = new RelayCommand<object>(_ => OpenSupportResistanceWindow());
         PlaceCeBuyCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Buy, "CE"));
         PlaceCeSellCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Sell, "CE"));
         PlacePeBuyCommand = new RelayCommand<object>(_ => _ = PlaceOrderAsync(OrderSide.Buy, "PE"));
@@ -189,6 +190,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ResumeLiveCommand { get; }
 
     public ICommand OpenTradingViewChartCommand { get; }
+
+    public ICommand OpenSupportResistanceCommand { get; }
 
     public ICommand ToggleSessionReviewPanelCommand { get; }
 
@@ -976,6 +979,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _ = window.LoadOrdersAsync();
         window.ShowDialog();
         Status = $"{mode} orders popup opened";
+    }
+
+    private void OpenSupportResistanceWindow()
+    {
+        var favorites = Instruments.Where(item => item.IsFavorite).ToArray();
+        var window = new SupportResistanceWindow(favorites, historicalDataSource, sessionStore, marketDataSource)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+
+        window.Show();
+        Status = "S/R window opened";
     }
 
     private void StartLiveScanLoop()
