@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MarketAnalyser.App.ViewModels;
@@ -13,6 +14,8 @@ public sealed class MarketSessionStore
     {
         Converters = { new JsonStringEnumConverter() }
     };
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string rootDirectory;
 
@@ -33,7 +36,7 @@ public sealed class MarketSessionStore
         }
 
         var count = 0;
-        await foreach (var _ in File.ReadLinesAsync(path, cancellationToken))
+        await foreach (var _ in ReadLinesAsync(path, cancellationToken))
         {
             count++;
         }
@@ -117,7 +120,7 @@ public sealed class MarketSessionStore
         }
 
         var records = new List<MarketSessionRecord>();
-        await foreach (var line in File.ReadLinesAsync(path, cancellationToken))
+        await foreach (var line in ReadLinesAsync(path, cancellationToken))
         {
             if (string.IsNullOrWhiteSpace(line))
             {
@@ -158,7 +161,12 @@ public sealed class MarketSessionStore
         var path = GetSessionPath(snapshot.Symbol, DateOnly.FromDateTime(snapshot.Timestamp.ToLocalTime().DateTime));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(record, JsonOptions);
-        await File.AppendAllTextAsync(path, json + Environment.NewLine, cancellationToken);
+        await WriteLockedAsync(path, async stream =>
+        {
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+            await writer.FlushAsync();
+        }, cancellationToken);
     }
 
     public async Task SaveSnapshotsAsync(
@@ -175,13 +183,16 @@ public sealed class MarketSessionStore
             .Select(snapshot => MarketSessionRecord.FromSnapshot(snapshot, null, new MarketSignalViewModel("WAIT", "Historical backfill", System.Windows.Media.Brushes.LightSlateGray)))
             .ToArray();
 
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        await using var writer = new StreamWriter(stream);
-        foreach (var record in records)
+        await WriteLockedAsync(path, async stream =>
         {
-            var json = JsonSerializer.Serialize(record, JsonOptions);
-            await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
-        }
+            await using var writer = new StreamWriter(stream);
+            foreach (var record in records)
+            {
+                var json = JsonSerializer.Serialize(record, JsonOptions);
+                await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+            }
+            await writer.FlushAsync();
+        }, cancellationToken);
     }
 
     public string GetSessionPath(string symbol, DateOnly date)
@@ -189,6 +200,55 @@ public sealed class MarketSessionStore
         var safeSymbol = string.Concat(symbol.Where(char.IsLetterOrDigit)).ToUpperInvariant();
         var dateFolder = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         return Path.Combine(rootDirectory, dateFolder, $"{safeSymbol}.jsonl");
+    }
+
+    private static SemaphoreSlim GetLock(string path)
+    {
+        return FileLocks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
+    }
+
+    private static async IAsyncEnumerable<string> ReadLinesAsync(
+        string path,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var gate = GetLock(path);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            while (!reader.EndOfStream)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is not null)
+                {
+                    yield return line;
+                }
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static async Task WriteLockedAsync(
+        string path,
+        Func<FileStream, Task> writeAsync,
+        CancellationToken cancellationToken)
+    {
+        var gate = GetLock(path);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            await writeAsync(stream);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private static IReadOnlyList<MarketSessionMissingRange> DetectMissingRanges(
@@ -276,6 +336,7 @@ public sealed record MarketSessionRecord(
     DateTimeOffset Timestamp,
     decimal Spot,
     decimal SpotChange,
+    decimal UnderlyingVolume,
     decimal PutCallRatioOi,
     decimal PutCallRatioVolume,
     decimal CeVolumeShare,
@@ -300,6 +361,7 @@ public sealed record MarketSessionRecord(
             snapshot.Timestamp,
             snapshot.Spot,
             snapshot.SpotChange,
+            snapshot.VolumeSeries.LastOrDefault()?.Value ?? 0,
             snapshot.Breadth.PutCallRatioOi,
             snapshot.Breadth.PutCallRatioVolume,
             snapshot.Breadth.CeVolumeShare,

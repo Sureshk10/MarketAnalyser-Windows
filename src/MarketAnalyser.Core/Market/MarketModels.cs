@@ -131,7 +131,7 @@ public sealed record MarketBreadth(
     long TotalCallVolume,
     long TotalPutVolume);
 
-internal sealed record MarketQuoteSnapshot(decimal? Spot, MarketDepthSnapshot? Depth);
+internal sealed record MarketQuoteSnapshot(decimal? Spot, long? Volume, MarketDepthSnapshot? Depth);
 
 public sealed record ChartPoint(DateTimeOffset Time, decimal Value);
 
@@ -149,6 +149,7 @@ public sealed record MarketSnapshot(
     IReadOnlyList<OptionStrikeSnapshot> Strikes,
     MarketBreadth Breadth,
     IReadOnlyList<ChartPoint> PriceSeries,
+    IReadOnlyList<ChartPoint> VolumeSeries,
     IReadOnlyList<ChartPoint> OiChangeSeries,
     IReadOnlyList<StrikeOiChangeSeries> StrikeOiChangeSeries,
     decimal? PreviousClose = null,

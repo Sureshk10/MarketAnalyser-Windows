@@ -48,8 +48,9 @@ public partial class App : Application
 
             var optionsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
             var options = AppOptions.Load(optionsPath);
-            var dataSource = CreateDataSource(options);
-            var historicalDataSource = CreateHistoricalDataSource(options);
+            var catalog = new InstrumentCatalog(options.Instruments);
+            var dataSource = CreateDataSource(options, catalog);
+            var historicalDataSource = CreateHistoricalDataSource(options, catalog);
             var orderBroker = CreateOrderBroker(options);
             var viewModel = new MainWindowViewModel(
                 dataSource,
@@ -71,7 +72,7 @@ public partial class App : Application
         }
     }
 
-    private static IMarketDataSource CreateDataSource(AppOptions options)
+    private static IMarketDataSource CreateDataSource(AppOptions options, InstrumentCatalog catalog)
     {
         if (string.Equals(options.DataSource.Mode, "Rest", StringComparison.OrdinalIgnoreCase))
         {
@@ -85,24 +86,23 @@ public partial class App : Application
         {
             BaseAddress = new Uri(options.Dhan.RestBaseUrl.TrimEnd('/') + "/")
         };
-        var catalog = new InstrumentCatalog(options.Instruments);
         var dhanClient = new DhanClient(httpClient, options.Dhan);
         return new EmbeddedMarketDataSource(catalog, dhanClient, options.Dhan);
     }
 
-    private static IHistoricalMarketDataSource CreateHistoricalDataSource(AppOptions options)
+    private static IHistoricalMarketDataSource CreateHistoricalDataSource(AppOptions options, InstrumentCatalog catalog)
     {
-        if (string.IsNullOrWhiteSpace(options.DataSource.HistoricalRestBaseUrl))
+        if (options.Dhan is null || string.IsNullOrWhiteSpace(options.Dhan.ClientId) || string.IsNullOrWhiteSpace(options.Dhan.AccessToken))
         {
             return new EmptyHistoricalMarketDataSource();
         }
 
-        return new RestHistoricalMarketDataSource(
-            new HttpClient
-            {
-                BaseAddress = new Uri(options.DataSource.HistoricalRestBaseUrl.TrimEnd('/') + "/")
-            },
-            options.DataSource.HistoricalApiKey);
+        var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri(options.Dhan.RestBaseUrl.TrimEnd('/') + "/")
+        };
+        var dhanClient = new DhanClient(httpClient, options.Dhan);
+        return new DhanHistoricalMarketDataSource(catalog, dhanClient);
     }
 
     private static IOrderBroker CreateOrderBroker(AppOptions options)

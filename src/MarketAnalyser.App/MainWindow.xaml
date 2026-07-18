@@ -633,7 +633,7 @@
         <Grid Grid.Column="2" Margin="14,0,0,0" Visibility="{Binding RightPanelVisibility}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="200" />
-                <RowDefinition Height="130" />
+                <RowDefinition Height="180" />
                 <RowDefinition Height="{Binding SessionReviewRowHeight}" />
                 <RowDefinition Height="{Binding LiveScanRowHeight}" />
                 <RowDefinition Height="*" />
@@ -685,6 +685,7 @@
                     <TextBlock Text="Movement Reading" FontSize="18" FontWeight="SemiBold" Foreground="White" />
                     <TextBlock Text="{Binding MovementReadingTitle}" FontSize="20" FontWeight="SemiBold" Foreground="{Binding MovementReadingForeground}" Margin="0,12,0,4" />
                     <TextBlock Text="{Binding MovementReadingDetail}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBlock Text="{Binding MovementReadingStats}" TextWrapping="Wrap" Foreground="#D8E1EC" FontWeight="SemiBold" Margin="0,6,0,0" />
                     <TextBlock Text="{Binding MovementReadingWatchText}" TextWrapping="Wrap" Foreground="White" FontWeight="SemiBold" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>

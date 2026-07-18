@@ -101,7 +101,7 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         }
         instrumentIndex.ReplaceSymbol(instrument.Symbol, CreateInstrumentRefs(instrument, response));
         liveFeed.Value.Start();
-        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose, spot, marketDepth);
+        var snapshot = Normalize(instrument, response, previousSnapshot, previousClose, spot, marketQuote?.Volume, marketDepth);
         snapshotCache[instrument.Symbol] = snapshot;
         underlyingUpdateCache[instrument.Symbol] = snapshot.Timestamp;
         return snapshot;
@@ -248,6 +248,7 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
         MarketSnapshot? previous,
         PreviousCloseResult previousClose,
         decimal spot,
+        long? volume,
         MarketDepthSnapshot? marketDepth)
     {
         var now = DateTimeOffset.UtcNow;
@@ -272,6 +273,7 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
             displayStrikes,
             CreateBreadth(strikes),
             AppendPoint(previous?.PriceSeries ?? [], now, spot),
+            AppendPoint(previous?.VolumeSeries ?? [], now, volume ?? 0),
             AppendPoint(previous?.OiChangeSeries ?? [], now, totalPutOiChange - totalCallOiChange),
             AppendStrikeOiHistory(previous?.StrikeOiChangeSeries ?? [], displayStrikes, now),
             GetPreviousClose(previous, previousClose.Close),
@@ -440,6 +442,10 @@ public sealed class EmbeddedMarketDataSource : IMarketDataSource
 
             return new MarketQuoteSnapshot(
                 DhanMarketQuoteParser.TryParseSpotPrice(
+                    response,
+                    instrument.UnderlyingSegment,
+                    instrument.UnderlyingSecurityId),
+                DhanMarketQuoteParser.TryParseVolume(
                     response,
                     instrument.UnderlyingSegment,
                     instrument.UnderlyingSecurityId),

@@ -35,6 +35,7 @@ public static class MockMarketData
             strikes,
             EmbeddedMarketDataSource.CreateBreadth(strikes),
             EmbeddedMarketDataSource.AppendPoint(previous?.PriceSeries ?? [], now, spot),
+            EmbeddedMarketDataSource.AppendPoint(previous?.VolumeSeries ?? [], now, (long)(spot * 100)),
             EmbeddedMarketDataSource.AppendPoint(previous?.OiChangeSeries ?? [], now, totalPutOiChange - totalCallOiChange),
             EmbeddedMarketDataSource.AppendStrikeOiHistory(previous?.StrikeOiChangeSeries ?? [], strikes, now),
             null,

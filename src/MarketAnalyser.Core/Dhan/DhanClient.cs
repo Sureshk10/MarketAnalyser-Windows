@@ -82,6 +82,41 @@ public sealed class DhanClient(HttpClient httpClient, DhanOptions options)
             ReadLongArray(root, "timestamp"));
     }
 
+    public async Task<DhanIntradayHistoricalResponse?> GetIntradayHistoricalAsync(
+        DhanIntradayHistoricalRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            return null;
+        }
+
+        using var message = CreateRequest(HttpMethod.Post, "charts/intraday");
+        message.Content = JsonContent.Create(new
+        {
+            securityId = request.SecurityId.ToString(),
+            exchangeSegment = request.ExchangeSegment,
+            instrument = request.Instrument,
+            interval = request.Interval.ToString(CultureInfo.InvariantCulture),
+            oi = request.Oi,
+            fromDate = request.FromDate.ToString("yyyy-MM-dd HH:mm:ss"),
+            toDate = request.ToDate.ToString("yyyy-MM-dd HH:mm:ss")
+        });
+
+        var body = await SendRawAsync(message, cancellationToken);
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+
+        return new DhanIntradayHistoricalResponse(
+            ReadDecimalArray(root, "open"),
+            ReadDecimalArray(root, "high"),
+            ReadDecimalArray(root, "low"),
+            ReadDecimalArray(root, "close"),
+            ReadLongArray(root, "volume"),
+            ReadLongArray(root, "timestamp"),
+            ReadLongArray(root, "open_interest"));
+    }
+
     public async Task<string?> GetFullQuoteAsync(
         DhanMarketQuoteRequest request,
         CancellationToken cancellationToken)
@@ -201,6 +236,15 @@ public sealed record DhanHistoricalRequest(
     DateOnly FromDate,
     DateOnly ToDate);
 
+public sealed record DhanIntradayHistoricalRequest(
+    int SecurityId,
+    string ExchangeSegment,
+    string Instrument,
+    int Interval,
+    bool Oi,
+    DateTimeOffset FromDate,
+    DateTimeOffset ToDate);
+
 public sealed record DhanMarketQuoteRequest(
     string ExchangeSegment,
     int SecurityId);
@@ -212,6 +256,29 @@ public sealed record DhanHistoricalResponse(
     [property: JsonPropertyName("timestamp")]
     [property: JsonConverter(typeof(LongListJsonConverter))]
     IReadOnlyList<long> Timestamp);
+
+public sealed record DhanIntradayHistoricalResponse(
+    [property: JsonPropertyName("open")]
+    [property: JsonConverter(typeof(DecimalListJsonConverter))]
+    IReadOnlyList<decimal> Open,
+    [property: JsonPropertyName("high")]
+    [property: JsonConverter(typeof(DecimalListJsonConverter))]
+    IReadOnlyList<decimal> High,
+    [property: JsonPropertyName("low")]
+    [property: JsonConverter(typeof(DecimalListJsonConverter))]
+    IReadOnlyList<decimal> Low,
+    [property: JsonPropertyName("close")]
+    [property: JsonConverter(typeof(DecimalListJsonConverter))]
+    IReadOnlyList<decimal> Close,
+    [property: JsonPropertyName("volume")]
+    [property: JsonConverter(typeof(LongListJsonConverter))]
+    IReadOnlyList<long> Volume,
+    [property: JsonPropertyName("timestamp")]
+    [property: JsonConverter(typeof(LongListJsonConverter))]
+    IReadOnlyList<long> Timestamp,
+    [property: JsonPropertyName("open_interest")]
+    [property: JsonConverter(typeof(LongListJsonConverter))]
+    IReadOnlyList<long> OpenInterest);
 
 public sealed record DhanExpiryListResponse(
     [property: JsonPropertyName("data")] IReadOnlyList<DateOnly> Data,

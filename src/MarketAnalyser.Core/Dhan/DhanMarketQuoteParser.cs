@@ -24,6 +24,15 @@ internal static class DhanMarketQuoteParser
         return TryParseSpotPrice(document.RootElement, expectedExchangeSegment, expectedSecurityId);
     }
 
+    public static long? TryParseVolume(
+        string json,
+        string expectedExchangeSegment,
+        int expectedSecurityId)
+    {
+        using var document = JsonDocument.Parse(json);
+        return TryParseVolume(document.RootElement, expectedExchangeSegment, expectedSecurityId);
+    }
+
     public static MarketDepthSnapshot? TryParseDepth(
         JsonElement root,
         string expectedExchangeSegment,
@@ -70,6 +79,32 @@ internal static class DhanMarketQuoteParser
             if (TryReadDecimalProperty(candidate, out var price, "ltp", "last_price", "lastPrice", "price") && price > 0)
             {
                 return price;
+            }
+        }
+
+        return null;
+    }
+
+    public static long? TryParseVolume(
+        JsonElement root,
+        string expectedExchangeSegment,
+        int expectedSecurityId)
+    {
+        var candidates = EnumerateObjects(root).ToArray();
+
+        foreach (var candidate in candidates.Where(candidate => MatchesInstrument(candidate, expectedExchangeSegment, expectedSecurityId)))
+        {
+            if (TryReadLongProperty(candidate, out var volume, "volume", "total_volume", "traded_volume", "turnover_volume") && volume > 0)
+            {
+                return volume;
+            }
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (TryReadLongProperty(candidate, out var volume, "volume", "total_volume", "traded_volume", "turnover_volume") && volume > 0)
+            {
+                return volume;
             }
         }
 

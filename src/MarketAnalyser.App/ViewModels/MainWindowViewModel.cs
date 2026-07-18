@@ -38,6 +38,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly CancellationTokenSource liveScanCts = new();
     private CancellationTokenSource selectionCts = new();
     private Task? liveScanTask;
+    private Task? historicalWarmupTask;
+    private readonly SemaphoreSlim historicalWarmupGate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> recentAlertKeys = [];
     private static readonly TimeSpan SignalRearmCooldown = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan LiveScanInterval = TimeSpan.FromSeconds(60);
@@ -64,6 +66,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private Brush sessionOiShiftForeground = Brushes.LightSlateGray;
     private string movementReadingTitle = "Waiting";
     private string movementReadingDetail = "Live snapshot not loaded";
+    private string movementReadingStats = string.Empty;
     private string movementReadingWatchText = "--";
     private Brush movementReadingForeground = Brushes.LightSlateGray;
     private string? lastMovementTimelineTitle;
@@ -488,6 +491,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PcrOiText));
                 OnPropertyChanged(nameof(PcrVolumeText));
                 OnPropertyChanged(nameof(VolumeShareText));
+                OnPropertyChanged(nameof(VolumeText));
+                OnPropertyChanged(nameof(RsiText));
+                OnPropertyChanged(nameof(VwapText));
+                OnPropertyChanged(nameof(VolumeRatioText));
                 OnPropertyChanged(nameof(LastUpdatedText));
                 OnPropertyChanged(nameof(MarketDepthInfluenceText));
                 OnPropertyChanged(nameof(MarketDepthInfluenceForeground));
@@ -576,6 +583,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get => movementReadingDetail;
         private set => SetField(ref movementReadingDetail, value);
+    }
+
+    public string MovementReadingStats
+    {
+        get => movementReadingStats;
+        private set => SetField(ref movementReadingStats, value);
     }
 
     public string MovementReadingWatchText
@@ -677,6 +690,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string VolumeShareText => Snapshot is null
         ? "--"
         : $"{Snapshot.Breadth.CeVolumeShare:N0}% / {Snapshot.Breadth.PeVolumeShare:N0}%";
+
+    public string VolumeText => Snapshot is null
+        ? "--"
+        : FormatNumber(Snapshot.VolumeSeries.LastOrDefault()?.Value ?? 0);
+
+    public string RsiText => Snapshot is null
+        ? "--"
+        : CalculateRsi(Snapshot.PriceSeries, 14)?.ToString("N1", CultureInfo.CurrentCulture) ?? "--";
+
+    public string VwapText => Snapshot is null
+        ? "--"
+        : CalculateVwap(Snapshot.PriceSeries, Snapshot.VolumeSeries)?.ToString("N2", CultureInfo.CurrentCulture) ?? "--";
+
+    public string VolumeRatioText => Snapshot is null
+        ? "--"
+        : CalculateVolumeRatio(Snapshot.VolumeSeries)?.ToString("N2", CultureInfo.CurrentCulture) ?? "--";
 
     public string LastUpdatedText => Snapshot is null ? "--" : Snapshot.Timestamp.ToLocalTime().ToString("HH:mm:ss");
 
@@ -782,6 +811,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         if (isReplayMode || SelectedInstrument is null)
         {
+            return;
+        }
+
+        if (!force && !IsLiveRefreshAllowed(SelectedInstrument))
+        {
+            Status = $"Live refresh paused after market hours for {SelectedInstrument.Symbol}";
             return;
         }
 
@@ -1149,7 +1184,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             AppExceptionLogger.Log(ex);
-            SessionStatus = "Local session backfill unavailable";
+            SessionStatus = "Session backfill unavailable";
         }
     }
 
@@ -1235,7 +1270,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             AppExceptionLogger.Log(ex);
-            SessionStatus = "Local session recording failed";
+            SessionStatus = "Session recording issue";
         }
     }
 
@@ -1490,6 +1525,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             MovementReadingTitle = "Waiting";
             MovementReadingDetail = "Live snapshot not loaded";
+            MovementReadingStats = "RSI -- | VWAP -- | Vol -- | Vol x avg --";
             MovementReadingWatchText = "--";
             MovementReadingForeground = Brushes.LightSlateGray;
             return;
@@ -1586,6 +1622,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             MovementReadingTitle = expansion.Title;
             MovementReadingForeground = expansion.Foreground;
             MovementReadingDetail = expansion.Detail;
+            MovementReadingStats = BuildMovementStatsText();
             MovementReadingWatchText = BuildMovementWatchText();
             return;
         }
@@ -1607,7 +1644,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         MovementReadingDetail = reasons.Count == 0
             ? "No clear movement pressure yet"
             : string.Join(" | ", reasons.Take(4));
+        MovementReadingStats = BuildMovementStatsText();
         MovementReadingWatchText = BuildMovementWatchText();
+    }
+
+    private string BuildMovementStatsText()
+    {
+        if (Snapshot is null)
+        {
+            return "RSI -- | VWAP -- | Vol -- | Vol x avg --";
+        }
+
+        return $"RSI {RsiText} | VWAP {VwapText} | Vol {VolumeText} | Vol x avg {VolumeRatioText}";
     }
 
     private string BuildMovementWatchText()
@@ -1841,56 +1889,104 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task ShowReplaySummaryAsync()
     {
-        var selection = await LoadSelectedReplaySelectionAsync();
-        if (selection is null)
+        try
         {
-            return;
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary click started");
+            ReplayStatusText = "Summary clicked";
+
+            if (SelectedInstrument is null)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary blocked: no selected instrument");
+                ReplayStatusText = "Select a symbol first";
+                MessageBox.Show(
+                    "Please select a symbol before opening Summary.",
+                    "Market Analyser",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (ReplaySelectedDate is null)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary blocked: no replay date");
+                ReplayStatusText = "Select a replay date first";
+                MessageBox.Show(
+                    "Please select a replay date before opening Summary.",
+                    "Market Analyser",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var selection = await LoadOrDownloadSelectedReplaySelectionAsync();
+            if (selection is null)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary blocked: selection lookup returned null");
+                ReplayStatusText = "Select symbol and replay date first";
+                MessageBox.Show(
+                    "Please select a symbol and replay date before opening Summary.",
+                    "Market Analyser",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary loading report for {selection.Date:yyyy-MM-dd} symbol={SelectedInstrument.Symbol}");
+            var report = BuildReplayReport(selection);
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary report rows full={report.FullRows.Count} summary={report.SummaryRows.Count}");
+            if (report.FullRows.Count == 0 && report.SummaryRows.Count == 0)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary blocked: no rows found");
+                ReplayStatusText = $"No summary data for {selection.Date:yyyy-MM-dd}";
+                MessageBox.Show(
+                    $"No summary data was available for {selection.Date:yyyy-MM-dd}.",
+                    "Market Analyser",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var window = new ReplaySummaryWindow(
+                SelectedInstrument.Symbol,
+                report.FromDate,
+                report.ToDate,
+                report.FullRows,
+                report.SummaryRows,
+                report.SelectedDetail)
+            {
+                Owner = Application.Current?.MainWindow
+            };
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary window opening");
+            ReplayStatusText = $"Summary opened for {selection.Date:yyyy-MM-dd}";
+            window.Show();
+            window.Activate();
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary window shown");
         }
-
-        await BackfillRecentHistoricalSessionsAsync(selection.Date, 30);
-        selection = await LoadSelectedReplaySelectionAsync();
-        if (selection is null)
+        catch (Exception ex)
         {
-            return;
+            AppExceptionLogger.Log(ex);
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary failed: {ex.GetType().Name}: {ex.Message}");
+            ReplayStatusText = "Summary failed";
+            MessageBox.Show(
+                $"Summary could not open: {ex.Message}",
+                "Market Analyser",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
-
-        var summaryText = BuildSelectedDaySummary(selection);
-        var window = new ReplaySummaryWindow(
-            SelectedInstrument?.Symbol ?? "Market",
-            selection.Date,
-            selection.Date,
-            summaryText)
-        {
-            Owner = Application.Current?.MainWindow
-        };
-
-        ReplayStatusText = $"Summary opened for {selection.Date:yyyy-MM-dd}";
-        window.ShowDialog();
     }
 
-    private async Task BackfillRecentHistoricalSessionsAsync(DateOnly selectedDate, int days)
+    private static bool IsLiveRefreshAllowed(CatalogInstrumentViewModel instrument)
     {
-        if (SelectedInstrument is null)
+        if (instrument.Source.Segment == MarketSegment.Commodity)
         {
-            return;
+            return true;
         }
 
-        var fromDate = selectedDate.AddDays(-(Math.Max(1, days) - 1));
-        for (var date = fromDate; date <= selectedDate; date = date.AddDays(1))
-        {
-            var from = date.ToDateTime(new TimeOnly(9, 15));
-            var to = date.ToDateTime(new TimeOnly(15, 30));
-            var snapshots = await historicalDataSource.GetSnapshotsAsync(
-                SelectedInstrument.Symbol,
-                new DateTimeOffset(from, TimeZoneInfo.Local.GetUtcOffset(from)),
-                new DateTimeOffset(to, TimeZoneInfo.Local.GetUtcOffset(to)),
-                CancellationToken.None);
-
-            if (snapshots.Count > 0)
-            {
-                await sessionStore.SaveSnapshotsAsync(SelectedInstrument.Symbol, date, snapshots, CancellationToken.None);
-            }
-        }
+        var now = DateTime.Now.TimeOfDay;
+        var marketOpen = new TimeSpan(9, 15, 0);
+        var marketClose = new TimeSpan(15, 30, 0);
+        return now >= marketOpen && now <= marketClose;
     }
 
     private async Task<ReplaySelectionData?> LoadSelectedReplaySelectionAsync()
@@ -1910,6 +2006,200 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             CancellationToken.None);
 
         return new ReplaySelectionData(date, startFrom, records);
+    }
+
+    private async Task<ReplaySelectionData?> LoadOrDownloadSelectedReplaySelectionAsync()
+    {
+        if (SelectedInstrument is null || ReplaySelectedDate is null)
+        {
+            ReplayStatusText = "Select symbol and date";
+            return null;
+        }
+
+        var date = DateOnly.FromDateTime(ReplaySelectedDate.Value);
+        var from = date.ToDateTime(new TimeOnly(9, 15));
+        var to = date.ToDateTime(new TimeOnly(15, 30));
+        var startFrom = new DateTimeOffset(from, TimeZoneInfo.Local.GetUtcOffset(from));
+        var endAt = new DateTimeOffset(to, TimeZoneInfo.Local.GetUtcOffset(to));
+
+        var records = await sessionStore.LoadRecordsAsync(
+            SelectedInstrument.Symbol,
+            date,
+            startFrom,
+            CancellationToken.None);
+
+        if (records.Count == 0)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary cache miss for {SelectedInstrument.Symbol} {date:yyyy-MM-dd}; downloading full day");
+            ReplayStatusText = $"Downloading {SelectedInstrument.Symbol} {date:yyyy-MM-dd}";
+
+            var snapshots = await historicalDataSource.GetSnapshotsAsync(
+                SelectedInstrument.Symbol,
+                startFrom,
+                endAt,
+                CancellationToken.None);
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Summary download returned {snapshots.Count:N0} snapshots");
+            if (snapshots.Count > 0)
+            {
+                foreach (var snapshot in snapshots.OrderBy(snapshot => snapshot.Timestamp))
+                {
+                    await sessionStore.AppendAsync(snapshot, null, BuildMarketSignal(snapshot), CancellationToken.None);
+                }
+
+                records = await sessionStore.LoadRecordsAsync(
+                    SelectedInstrument.Symbol,
+                    date,
+                    startFrom,
+                    CancellationToken.None);
+            }
+        }
+
+        return new ReplaySelectionData(date, startFrom, records);
+    }
+
+    private static ReplayReportData BuildReplayReport(ReplaySelectionData selection)
+    {
+        var records = selection.Records;
+        if (records.Count == 0)
+        {
+            return new ReplayReportData(selection.Date, selection.Date, [], [], string.Empty);
+        }
+
+        var daySummary = BuildDailySummary(selection.Date, records);
+        var fullRows = BuildCallRows(records);
+        var summaryRows = BuildTradeSummaryRows(records);
+        return new ReplayReportData(selection.Date, selection.Date, fullRows, summaryRows, daySummary.Text);
+    }
+
+    private static IReadOnlyList<ReplayCallSummaryRow> BuildCallRows(IReadOnlyList<MarketSessionRecord> records)
+    {
+        return records
+            .Where(record =>
+            {
+                var label = (record.Signal ?? string.Empty).Trim().ToUpperInvariant();
+                return label is "BUY" or "SELL";
+            })
+            .Select((record, index) =>
+            {
+                var label = (record.Signal ?? string.Empty).Trim().ToUpperInvariant();
+                var signalDetail = record.SignalDetail ?? string.Empty;
+                var outcome = signalDetail.Contains("Target hit", StringComparison.OrdinalIgnoreCase)
+                    ? "Target hit"
+                    : signalDetail.Contains("Stoploss hit", StringComparison.OrdinalIgnoreCase)
+                        ? "Stoploss hit"
+                        : signalDetail.Contains("pending", StringComparison.OrdinalIgnoreCase)
+                            ? "Pending"
+                            : string.Empty;
+
+                return new ReplayCallSummaryRow(
+                    index + 1,
+                    record.Timestamp.ToLocalTime().ToString("HH:mm:ss"),
+                    record.Timestamp.ToLocalTime().ToString("yyyy-MM-dd"),
+                    label,
+                    record.SelectedStrike is null ? string.Empty : FormatNumber(record.SelectedStrike.Value),
+                    FormatNumber(record.Spot),
+                    GetSignalEntry(signalDetail),
+                    GetSignalStopLoss(signalDetail),
+                    GetSignalTarget(signalDetail),
+                    outcome,
+                    signalDetail);
+            })
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ReplayTradeSummaryRow> BuildTradeSummaryRows(IReadOnlyList<MarketSessionRecord> records)
+    {
+        var ordered = records.OrderBy(record => record.Timestamp).ToArray();
+        var rows = new List<ReplayTradeSummaryRow>();
+        var current = default(TradeBuilder);
+
+        foreach (var record in ordered)
+        {
+            var label = (record.Signal ?? string.Empty).Trim().ToUpperInvariant();
+            var detail = record.SignalDetail ?? string.Empty;
+            var isOpenSignal = label is "BUY" or "SELL" && !IsClosedDetail(detail);
+
+            if (current is null)
+            {
+                if (!isOpenSignal)
+                {
+                    continue;
+                }
+
+                current = new TradeBuilder(record, label);
+                continue;
+            }
+
+            if (isOpenSignal)
+            {
+                if (label != current.Signal)
+                {
+                    rows.Add(current.Build());
+                    current = new TradeBuilder(record, label);
+                }
+                continue;
+            }
+
+            current.Observe(record);
+
+            if (IsClosedDetail(detail))
+            {
+                current.Close(record, detail);
+                rows.Add(current.Build());
+                current = null;
+            }
+        }
+
+        if (current is not null)
+        {
+            rows.Add(current.Build());
+        }
+
+        return rows
+            .OrderBy(row => row.StartTime)
+            .ToArray();
+    }
+
+    private static string GetSignalEntry(string detail)
+    {
+        return ExtractAfterLabel(detail, "Entry");
+    }
+
+    private static string GetSignalStopLoss(string detail)
+    {
+        return ExtractAfterLabel(detail, "SL");
+    }
+
+    private static string GetSignalTarget(string detail)
+    {
+        return ExtractAfterLabel(detail, "T1");
+    }
+
+    private static string ExtractAfterLabel(string detail, string label)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return string.Empty;
+        }
+
+        var token = $"{label} ";
+        var index = detail.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return string.Empty;
+        }
+
+        var start = index + token.Length;
+        var end = detail.IndexOf('|', start);
+        var value = end < 0 ? detail[start..] : detail[start..end];
+        return value.Trim();
+    }
+
+    private static bool IsClosedDetail(string detail)
+    {
+        return detail.Contains("Target hit", StringComparison.OrdinalIgnoreCase) ||
+               detail.Contains("Stoploss hit", StringComparison.OrdinalIgnoreCase);
     }
 
     private DateTimeOffset BuildReplayStartTimestamp(DateOnly date)
@@ -2126,6 +2416,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var priceSeries = recordsToPoint
             .Select(item => new ChartPoint(item.Timestamp, item.Spot))
             .ToArray();
+        var volumeSeries = recordsToPoint
+            .Select(item => new ChartPoint(item.Timestamp, item.UnderlyingVolume))
+            .ToArray();
         var oiSeries = recordsToPoint
             .Select(item => new ChartPoint(item.Timestamp, item.Strikes.Sum(strike => strike.PutOpenInterestChange - strike.CallOpenInterestChange)))
             .ToArray();
@@ -2150,6 +2443,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 record.TotalCallVolume,
                 record.TotalPutVolume),
             priceSeries,
+            volumeSeries,
             oiSeries,
             BuildReplayStrikeHistory(recordsToPoint),
             null,
@@ -2381,6 +2675,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         var score = 0;
         var reasons = new List<string>();
+        var currentPrice = snapshot.PriceSeries.LastOrDefault()?.Value ?? snapshot.Spot;
+        var currentVolume = snapshot.VolumeSeries.LastOrDefault()?.Value ?? 0;
+        var rsi = CalculateRsi(snapshot.PriceSeries, 14);
+        var vwap = CalculateVwap(snapshot.PriceSeries, snapshot.VolumeSeries);
+        var volumeRatio = CalculateVolumeRatio(snapshot.VolumeSeries);
 
         if (snapshot.SpotChange > 0)
         {
@@ -2428,6 +2727,49 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             reasons.Add(DescribeDepthPressure(snapshot));
         }
 
+        if (rsi is not null)
+        {
+            if (rsi >= 60m)
+            {
+                score++;
+                reasons.Add($"RSI {rsi:N1}");
+            }
+            else if (rsi <= 40m)
+            {
+                score--;
+                reasons.Add($"RSI {rsi:N1}");
+            }
+        }
+
+        if (vwap is not null && currentPrice > 0)
+        {
+            var distanceFromVwap = Math.Abs(currentPrice - vwap.Value) / currentPrice;
+            if (currentPrice > vwap.Value && distanceFromVwap >= 0.0015m)
+            {
+                score++;
+                reasons.Add($"above VWAP {vwap:N2}");
+            }
+            else if (currentPrice < vwap.Value && distanceFromVwap >= 0.0015m)
+            {
+                score--;
+                reasons.Add($"below VWAP {vwap:N2}");
+            }
+        }
+
+        if (currentVolume > 0 && volumeRatio is not null)
+        {
+            if (volumeRatio >= 1.35m)
+            {
+                score++;
+                reasons.Add($"vol {currentVolume:N0} x{volumeRatio:N2}");
+            }
+            else if (volumeRatio <= 0.75m)
+            {
+                score--;
+                reasons.Add($"vol {currentVolume:N0} x{volumeRatio:N2}");
+            }
+        }
+
         var riskPoints = ResolveSignalRiskPoints(snapshot);
         var label = score >= 3
             ? "BUY"
@@ -2464,6 +2806,103 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             stopLoss,
             target,
             riskPoints);
+    }
+
+    private static decimal? CalculateRsi(IReadOnlyList<ChartPoint> priceSeries, int period)
+    {
+        if (priceSeries.Count < period + 1)
+        {
+            return null;
+        }
+
+        var slice = priceSeries.TakeLast(period + 1).Select(point => point.Value).ToArray();
+        decimal gains = 0;
+        decimal losses = 0;
+
+        for (var i = 1; i < slice.Length; i++)
+        {
+            var change = slice[i] - slice[i - 1];
+            if (change > 0)
+            {
+                gains += change;
+            }
+            else
+            {
+                losses += Math.Abs(change);
+            }
+        }
+
+        if (gains == 0 && losses == 0)
+        {
+            return 50m;
+        }
+
+        if (losses == 0)
+        {
+            return 100m;
+        }
+
+        var rs = (gains / period) / (losses / period);
+        return decimal.Round(100m - (100m / (1m + rs)), 1);
+    }
+
+    private static decimal? CalculateVwap(IReadOnlyList<ChartPoint> priceSeries, IReadOnlyList<ChartPoint> volumeSeries)
+    {
+        var count = Math.Min(priceSeries.Count, volumeSeries.Count);
+        if (count == 0)
+        {
+            return null;
+        }
+
+        decimal priceVolume = 0;
+        decimal volume = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var pv = priceSeries[i].Value * volumeSeries[i].Value;
+            priceVolume += pv;
+            volume += volumeSeries[i].Value;
+        }
+
+        if (volume <= 0)
+        {
+            return null;
+        }
+
+        return decimal.Round(priceVolume / volume, 2);
+    }
+
+    private static decimal? CalculateVolumeRatio(IReadOnlyList<ChartPoint> volumeSeries)
+    {
+        if (volumeSeries.Count < 2)
+        {
+            return null;
+        }
+
+        var current = volumeSeries.Last().Value;
+        if (current <= 0)
+        {
+            return null;
+        }
+
+        var prior = volumeSeries
+            .Take(Math.Max(1, volumeSeries.Count - 1))
+            .TakeLast(Math.Min(20, volumeSeries.Count - 1))
+            .Select(point => point.Value)
+            .Where(value => value > 0)
+            .ToArray();
+
+        if (prior.Length == 0)
+        {
+            return null;
+        }
+
+        var average = prior.Average();
+        if (average <= 0)
+        {
+            return null;
+        }
+
+        return decimal.Round(current / average, 2);
     }
 
     private void UpdateSignalState(MarketSnapshot snapshot)
@@ -2568,19 +3007,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return $"Spot {FormatNumber(snapshot.Spot)} @ {snapshot.Timestamp.ToLocalTime():HH:mm:ss} | {baseDetail}";
     }
 
-    private static string BuildSelectedDaySummary(ReplaySelectionData selection)
-    {
-        var ordered = selection.Records
-            .OrderBy(record => record.Timestamp)
-            .ToArray();
-        if (ordered.Length == 0)
-        {
-            return $"No replay records for {selection.Date:yyyy-MM-dd}.";
-        }
-
-        return BuildDailySummary(selection.Date, ordered).Text;
-    }
-
     private static DailySummary BuildDailySummary(DateOnly date, IReadOnlyList<MarketSessionRecord> records)
     {
         var ordered = records.OrderBy(record => record.Timestamp).ToArray();
@@ -2666,7 +3092,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var totalSetups = buySetups + sellSetups;
         var builder = new StringBuilder();
         builder.AppendLine($"{date:yyyy-MM-dd} summary");
-        builder.AppendLine($"Open {first.Spot:N2}, high {high.Spot:N2} at {high.Timestamp.ToLocalTime():HH:mm}, low {low.Spot:N2} at {low.Timestamp.ToLocalTime():HH:mm}, latest {last.Spot:N2}; net {FormatSigned(netMove)}.");
+        var netMoveText = FormatSigned(netMove);
+        builder.AppendLine($"Open {first.Spot:N2}, high {high.Spot:N2} at {high.Timestamp.ToLocalTime():HH:mm}, low {low.Spot:N2} at {low.Timestamp.ToLocalTime():HH:mm}, latest {last.Spot:N2}; net {netMoveText}.");
         builder.AppendLine($"Calls {totalSetups:N0} ({buySetups} BUY, {sellSetups} SELL) | {targetHits} target hit, {stoplossHits} stoploss hit{(tradeClosed ? string.Empty : " | pending")}.");
 
         if (trail.Count == 0)
@@ -2683,7 +3110,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             builder.AppendLine($"Current: {activeLabel} pending");
         }
 
-        return new DailySummary(date, buySetups, sellSetups, targetHits, stoplossHits, builder.ToString().TrimEnd());
+        return new DailySummary(date, buySetups, sellSetups, targetHits, stoplossHits, totalSetups, netMoveText, builder.ToString().TrimEnd());
     }
 
     private static bool IsClosedSignal(MarketSignalViewModel signal)
@@ -2732,10 +3159,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         DateTimeOffset StartFrom,
         IReadOnlyList<MarketSessionRecord> Records);
 
-    private sealed record ReplayRangeSelectionData(
+    private sealed record ReplayReportData(
         DateOnly FromDate,
         DateOnly ToDate,
-        IReadOnlyList<MarketSessionRecord> Records);
+        IReadOnlyList<ReplayCallSummaryRow> FullRows,
+        IReadOnlyList<ReplayTradeSummaryRow> SummaryRows,
+        string SelectedDetail);
 
     private sealed record DailySummary(
         DateOnly Date,
@@ -2743,7 +3172,117 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         int SellCount,
         int TargetHits,
         int StoplossHits,
+        int TotalCalls,
+        string NetMoveText,
         string Text);
+
+    public sealed record ReplayCallSummaryRow(
+        int RowNo,
+        string TimeText,
+        string DateText,
+        string Signal,
+        string StrikeText,
+        string SpotText,
+        string EntryText,
+        string StopLossText,
+        string TargetText,
+        string OutcomeText,
+        string Detail);
+
+    public sealed record ReplayTradeSummaryRow(
+        int RowNo,
+        string StartTime,
+        string DateText,
+        string Signal,
+        string StrikeText,
+        string EntryText,
+        string ExitTime,
+        string OutcomeText,
+        string BestExcursionText,
+        string BestExcursionTime,
+        string StopLossText,
+        string TargetText,
+        string Detail);
+
+    private sealed class TradeBuilder
+    {
+        public TradeBuilder(MarketSessionRecord firstRecord, string signal)
+        {
+            Signal = signal;
+            DateText = firstRecord.Timestamp.ToLocalTime().ToString("yyyy-MM-dd");
+            StartTime = firstRecord.Timestamp.ToLocalTime().ToString("HH:mm:ss");
+            EntrySpot = firstRecord.Spot;
+            BestSpot = firstRecord.Spot;
+            BestTime = firstRecord.Timestamp;
+            StrikeText = firstRecord.SelectedStrike is null ? string.Empty : FormatNumber(firstRecord.SelectedStrike.Value);
+            StopLossText = GetSignalStopLoss(firstRecord.SignalDetail ?? string.Empty);
+            TargetText = GetSignalTarget(firstRecord.SignalDetail ?? string.Empty);
+            Detail = firstRecord.SignalDetail ?? string.Empty;
+        }
+
+        public string Signal { get; }
+        public string DateText { get; }
+        public string StartTime { get; }
+        public decimal EntrySpot { get; private set; }
+        public decimal BestSpot { get; private set; }
+        public DateTimeOffset BestTime { get; private set; }
+        public DateTimeOffset? ExitTime { get; private set; }
+        public string OutcomeText { get; private set; } = "Pending";
+        public string StrikeText { get; }
+        public string StopLossText { get; }
+        public string TargetText { get; }
+        public string Detail { get; private set; }
+
+        public void Observe(MarketSessionRecord record)
+        {
+            if (Signal == "BUY")
+            {
+                if (record.Spot > BestSpot)
+                {
+                    BestSpot = record.Spot;
+                    BestTime = record.Timestamp;
+                }
+            }
+            else if (record.Spot < BestSpot)
+            {
+                BestSpot = record.Spot;
+                BestTime = record.Timestamp;
+            }
+        }
+
+        public void Close(MarketSessionRecord record, string detail)
+        {
+            ExitTime = record.Timestamp;
+            OutcomeText = detail.Contains("Target hit", StringComparison.OrdinalIgnoreCase)
+                ? "Target hit"
+                : detail.Contains("Stoploss hit", StringComparison.OrdinalIgnoreCase)
+                    ? "Stoploss hit"
+                    : "Closed";
+            EntrySpot = EntrySpot == 0 ? record.Spot : EntrySpot;
+            Detail = detail;
+        }
+
+        public ReplayTradeSummaryRow Build()
+        {
+            var bestExcursionText = Signal == "BUY"
+                ? BestSpot.ToString("N2")
+                : BestSpot.ToString("N2");
+            return new ReplayTradeSummaryRow(
+                0,
+                StartTime,
+                DateText,
+                Signal,
+                StrikeText,
+                EntrySpot.ToString("N2"),
+                ExitTime?.ToLocalTime().ToString("HH:mm:ss") ?? string.Empty,
+                OutcomeText,
+                bestExcursionText,
+                BestTime.ToLocalTime().ToString("HH:mm:ss"),
+                StopLossText,
+                TargetText,
+                Detail);
+        }
+    }
 
     private static long AggregateDepthPressure(MarketSnapshot snapshot)
     {
