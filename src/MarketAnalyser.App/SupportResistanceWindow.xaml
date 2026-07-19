@@ -1,6 +1,7 @@
 <Window x:Class="MarketAnalyser.App.SupportResistanceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:MarketAnalyser.App"
         Title="Support / Resistance Scanner"
         Width="1180"
         Height="760"
@@ -161,6 +162,7 @@
             <Setter Property="Foreground" Value="#D8E1EC" />
             <Setter Property="Padding" Value="8,4" />
         </Style>
+        <local:ValueToBrushConverter x:Key="ValueToBrushConverter" />
     </Window.Resources>
 
     <Border Margin="14"
@@ -196,14 +198,77 @@
             <DataGrid Margin="16" ItemsSource="{Binding Rows}">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Symbol" Binding="{Binding DisplayName}" Width="1.3*" />
-                    <DataGridTextColumn Header="Spot" Binding="{Binding SpotText}" Width="0.8*" />
-                    <DataGridTextColumn Header="Support" Binding="{Binding SupportText}" Width="0.9*" />
-                    <DataGridTextColumn Header="Resistance" Binding="{Binding ResistanceText}" Width="0.9*" />
-                    <DataGridTextColumn Header="Signal" Binding="{Binding SignalText}" Width="0.8*" />
+                    <DataGridTemplateColumn Header="Spot" Width="0.8*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding SpotText}" Foreground="{Binding SpotText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Support" Width="0.9*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding SupportText}" Foreground="{Binding SupportText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Resistance" Width="0.9*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding ResistanceText}" Foreground="{Binding ResistanceText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Signal" Width="0.8*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding SignalText}" Foreground="{Binding SignalText, Converter={StaticResource ValueToBrushConverter}}" FontWeight="SemiBold" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Near" Binding="{Binding NearText}" Width="1.1*" />
-                    <DataGridTextColumn Header="RSI" Binding="{Binding RsiText}" Width="0.7*" />
-                    <DataGridTextColumn Header="VWAP" Binding="{Binding VwapText}" Width="0.9*" />
-                    <DataGridTextColumn Header="Vol" Binding="{Binding VolumeText}" Width="0.8*" />
+                    <DataGridTemplateColumn Header="RSI" Width="0.7*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding RsiText}" Foreground="{Binding RsiText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="VWAP" Width="0.9*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding VwapText}" Foreground="{Binding VwapText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Vol" Width="0.8*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding VolumeText}" Foreground="{Binding VolumeText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Supertrend" Width="1.0*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding SupertrendText}" Foreground="{Binding SupertrendText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Fib" Width="0.9*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding FibonacciText}" Foreground="{Binding FibonacciText, Converter={StaticResource ValueToBrushConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Strength" Width="1.0*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding StrengthText}" Foreground="{Binding StrengthText, Converter={StaticResource ValueToBrushConverter}}" FontWeight="SemiBold" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>

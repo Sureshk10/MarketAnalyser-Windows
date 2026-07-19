@@ -311,6 +311,9 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
             var volumeSeries = candles.Select(candle => new ChartPoint(candle.End, candle.Volume)).ToArray();
             var rsi = CalculateRsi(priceSeries, 14);
             var vwap = CalculateVwap(priceSeries, volumeSeries);
+            var supertrend = CalculateSupertrend(candles, 10, 3m);
+            var fib = BuildFibonacciText(candles, spot);
+            var strength = BuildStrengthText(spot, support, resistance, candles, rsi, vwap);
             var signal = BuildSignal(spot, support, resistance, priceSeries, rsi, vwap);
             var near = BuildNearText(spot, support, resistance);
 
@@ -326,6 +329,9 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
                 rsi is null ? "--" : rsi.Value.ToString("N1", CultureInfo.CurrentCulture),
                 vwap is null ? "--" : vwap.Value.ToString("N2", CultureInfo.CurrentCulture),
                 FormatCompactCount(volumeSeries.LastOrDefault()?.Value ?? 0),
+                supertrend,
+                fib,
+                strength,
                 window.label);
         }
         catch (Exception ex)
@@ -354,6 +360,9 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         var volumeSeries = candles.Select(candle => new ChartPoint(candle.End, candle.Volume)).ToArray();
         var rsi = CalculateRsi(priceSeries, 14);
         var vwap = CalculateVwap(priceSeries, volumeSeries);
+        var supertrend = CalculateSupertrend(candles, 10, 3m);
+        var fib = BuildFibonacciText(candles, spot);
+        var strength = BuildStrengthText(spot, support, resistance, candles, rsi, vwap);
         var signal = BuildSignal(spot, support, resistance, priceSeries, rsi, vwap);
         var near = BuildNearText(spot, support, resistance);
 
@@ -369,6 +378,9 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
             rsi is null ? "--" : rsi.Value.ToString("N1", CultureInfo.CurrentCulture),
             vwap is null ? "--" : vwap.Value.ToString("N2", CultureInfo.CurrentCulture),
             FormatCompactCount(volumeSeries.LastOrDefault()?.Value ?? 0),
+            supertrend,
+            fib,
+            strength,
             timeframe);
     }
 
@@ -574,6 +586,53 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         return $"Near resistance {FormatNumber(resistance)}";
     }
 
+    private static string BuildStrengthText(
+        decimal spot,
+        decimal support,
+        decimal resistance,
+        IReadOnlyList<HistoricalCandle> candles,
+        decimal? rsi,
+        decimal? vwap)
+    {
+        var score = 0;
+
+        if (vwap is not null)
+        {
+            score += spot > vwap.Value ? 1 : spot < vwap.Value ? -1 : 0;
+        }
+
+        if (rsi is not null)
+        {
+            score += rsi >= 60m ? 1 : rsi <= 40m ? -1 : 0;
+        }
+
+        var supertrend = CalculateSupertrendDirection(candles);
+        if (supertrend is not null)
+        {
+            score += supertrend.Value ? 1 : -1;
+        }
+
+        var supportGap = spot - support;
+        var resistanceGap = resistance - spot;
+        var nearLevel = Math.Min(supportGap, resistanceGap);
+        if (nearLevel <= Math.Max(spot * 0.003m, 10m))
+        {
+            score += supportGap <= resistanceGap ? 1 : -1;
+        }
+
+        var label = score >= 3
+            ? "STRONG BUY"
+            : score == 2
+                ? "BUY"
+                : score <= -3
+                    ? "STRONG SELL"
+                    : score == -2
+                        ? "SELL"
+                        : "WAIT";
+
+        return label;
+    }
+
     private static decimal? CalculateRsi(IReadOnlyList<ChartPoint> priceSeries, int period)
     {
         if (priceSeries.Count < period + 1)
@@ -631,6 +690,205 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         return volume <= 0 ? null : decimal.Round(priceVolume / volume, 2);
     }
 
+    private static string CalculateSupertrend(IReadOnlyList<HistoricalCandle> candles, int atrPeriod, decimal multiplier)
+    {
+        if (candles.Count < atrPeriod + 1)
+        {
+            return "--";
+        }
+
+        var atr = CalculateAtr(candles, atrPeriod);
+        if (atr is null)
+        {
+            return "--";
+        }
+
+        decimal? finalUpperBand = null;
+        decimal? finalLowerBand = null;
+        decimal? supertrend = null;
+        bool bullish = true;
+
+        for (var i = 0; i < candles.Count; i++)
+        {
+            var candle = candles[i];
+            var hl2 = (candle.High + candle.Low) / 2m;
+            var basicUpperBand = hl2 + multiplier * atr.Value;
+            var basicLowerBand = hl2 - multiplier * atr.Value;
+
+            if (i == 0)
+            {
+                finalUpperBand = basicUpperBand;
+                finalLowerBand = basicLowerBand;
+                supertrend = basicLowerBand;
+                bullish = candle.Close >= basicLowerBand;
+                continue;
+            }
+
+            var prevClose = candles[i - 1].Close;
+            finalUpperBand = basicUpperBand < finalUpperBand.Value || prevClose > finalUpperBand.Value
+                ? basicUpperBand
+                : finalUpperBand;
+            finalLowerBand = basicLowerBand > finalLowerBand.Value || prevClose < finalLowerBand.Value
+                ? basicLowerBand
+                : finalLowerBand;
+
+            if (supertrend == finalUpperBand && candle.Close <= finalUpperBand.Value)
+            {
+                supertrend = finalUpperBand;
+                bullish = false;
+            }
+            else if (supertrend == finalUpperBand && candle.Close > finalUpperBand.Value)
+            {
+                supertrend = finalLowerBand;
+                bullish = true;
+            }
+            else if (supertrend == finalLowerBand && candle.Close >= finalLowerBand.Value)
+            {
+                supertrend = finalLowerBand;
+                bullish = true;
+            }
+            else if (supertrend == finalLowerBand && candle.Close < finalLowerBand.Value)
+            {
+                supertrend = finalUpperBand;
+                bullish = false;
+            }
+            else
+            {
+                supertrend = candle.Close >= finalLowerBand ? finalLowerBand : finalUpperBand;
+                bullish = candle.Close >= finalLowerBand;
+            }
+        }
+
+        return $"{(bullish ? "Bull" : "Bear")} {FormatNumber(supertrend ?? 0)}";
+    }
+
+    private static bool? CalculateSupertrendDirection(IReadOnlyList<HistoricalCandle> candles, int atrPeriod = 10, decimal multiplier = 3m)
+    {
+        if (candles.Count < atrPeriod + 1)
+        {
+            return null;
+        }
+
+        var atr = CalculateAtr(candles, atrPeriod);
+        if (atr is null)
+        {
+            return null;
+        }
+
+        decimal? finalUpperBand = null;
+        decimal? finalLowerBand = null;
+        decimal? supertrend = null;
+        bool bullish = true;
+
+        for (var i = 0; i < candles.Count; i++)
+        {
+            var candle = candles[i];
+            var hl2 = (candle.High + candle.Low) / 2m;
+            var basicUpperBand = hl2 + multiplier * atr.Value;
+            var basicLowerBand = hl2 - multiplier * atr.Value;
+
+            if (i == 0)
+            {
+                finalUpperBand = basicUpperBand;
+                finalLowerBand = basicLowerBand;
+                supertrend = basicLowerBand;
+                bullish = candle.Close >= basicLowerBand;
+                continue;
+            }
+
+            var prevClose = candles[i - 1].Close;
+            finalUpperBand = basicUpperBand < finalUpperBand!.Value || prevClose > finalUpperBand.Value
+                ? basicUpperBand
+                : finalUpperBand;
+            finalLowerBand = basicLowerBand > finalLowerBand!.Value || prevClose < finalLowerBand.Value
+                ? basicLowerBand
+                : finalLowerBand;
+
+            if (supertrend == finalUpperBand && candle.Close <= finalUpperBand.Value)
+            {
+                supertrend = finalUpperBand;
+                bullish = false;
+            }
+            else if (supertrend == finalUpperBand && candle.Close > finalUpperBand.Value)
+            {
+                supertrend = finalLowerBand;
+                bullish = true;
+            }
+            else if (supertrend == finalLowerBand && candle.Close >= finalLowerBand.Value)
+            {
+                supertrend = finalLowerBand;
+                bullish = true;
+            }
+            else if (supertrend == finalLowerBand && candle.Close < finalLowerBand.Value)
+            {
+                supertrend = finalUpperBand;
+                bullish = false;
+            }
+            else
+            {
+                supertrend = candle.Close >= finalLowerBand ? finalLowerBand : finalUpperBand;
+                bullish = candle.Close >= finalLowerBand;
+            }
+        }
+
+        return bullish;
+    }
+
+    private static decimal? CalculateAtr(IReadOnlyList<HistoricalCandle> candles, int period)
+    {
+        if (candles.Count < period + 1)
+        {
+            return null;
+        }
+
+        var trValues = new List<decimal>();
+        for (var i = 1; i < candles.Count; i++)
+        {
+            var current = candles[i];
+            var previousClose = candles[i - 1].Close;
+            var tr = Math.Max(
+                current.High - current.Low,
+                Math.Max(Math.Abs(current.High - previousClose), Math.Abs(current.Low - previousClose)));
+            trValues.Add(tr);
+        }
+
+        var slice = trValues.TakeLast(period).ToArray();
+        if (slice.Length == 0)
+        {
+            return null;
+        }
+
+        return decimal.Round(slice.Average(), 2);
+    }
+
+    private static string BuildFibonacciText(IReadOnlyList<HistoricalCandle> candles, decimal spot)
+    {
+        if (candles.Count == 0)
+        {
+            return "--";
+        }
+
+        var swingHigh = candles.Max(candle => candle.High);
+        var swingLow = candles.Min(candle => candle.Low);
+        var range = swingHigh - swingLow;
+        if (range <= 0)
+        {
+            return "--";
+        }
+
+        var levels = new (string Label, decimal Price)[]
+        {
+            ("23.6%", swingHigh - (range * 0.236m)),
+            ("38.2%", swingHigh - (range * 0.382m)),
+            ("50.0%", swingHigh - (range * 0.500m)),
+            ("61.8%", swingHigh - (range * 0.618m)),
+            ("78.6%", swingHigh - (range * 0.786m))
+        };
+
+        var nearest = levels.OrderBy(level => Math.Abs(level.Price - spot)).First();
+        return $"{nearest.Label} {FormatNumber(nearest.Price)}";
+    }
+
     private static string FormatNumber(decimal value) => value.ToString("N2", CultureInfo.CurrentCulture);
 
     private static string FormatCompactCount(decimal value)
@@ -675,11 +933,14 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
         string RsiText,
         string VwapText,
         string VolumeText,
+        string SupertrendText,
+        string FibonacciText,
+        string StrengthText,
         string LookbackText)
     {
         public static SupportResistanceRow Empty(string displayName, string symbol, string note = "--")
         {
-            return new SupportResistanceRow(displayName, symbol, "--", "--", "--", "WAIT", Brushes.Goldenrod, note, "--", "--", "--", string.Empty);
+            return new SupportResistanceRow(displayName, symbol, "--", "--", "--", "WAIT", Brushes.Goldenrod, note, "--", "--", "--", "--", "--", "--", string.Empty);
         }
     }
 
@@ -702,5 +963,74 @@ public partial class SupportResistanceWindow : Window, INotifyPropertyChanged
     private void OnPropertyChanged(string propertyName)
     {
         PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
+    }
+}
+
+public sealed class ValueToBrushConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var text = value?.ToString()?.Trim();
+        if (string.IsNullOrWhiteSpace(text) || text == "--" || text == "-")
+        {
+            return Brushes.LightSlateGray;
+        }
+
+        var upper = text.ToUpperInvariant();
+        if (upper.Contains("BUY") || upper.Contains("BULL") || upper.Contains("SUPPORT"))
+        {
+            return Brushes.MediumSeaGreen;
+        }
+
+        if (upper.Contains("SELL") || upper.Contains("BEAR") || upper.Contains("RESIST"))
+        {
+            return Brushes.IndianRed;
+        }
+
+        var numericPart = ExtractLeadingNumber(text);
+        if (numericPart is not null)
+        {
+            if (numericPart > 0)
+            {
+                return Brushes.MediumSeaGreen;
+            }
+
+            if (numericPart < 0)
+            {
+                return Brushes.IndianRed;
+            }
+        }
+
+        return Brushes.DodgerBlue;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+
+    private static decimal? ExtractLeadingNumber(string text)
+    {
+        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return null;
+        }
+
+        var candidate = parts[0]
+            .Replace("%", string.Empty)
+            .Replace("Cr", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("L", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("K", string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        if (decimal.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        {
+            return value;
+        }
+
+        if (parts.Length > 1 && decimal.TryParse(parts[1], NumberStyles.Float, CultureInfo.CurrentCulture, out value))
+        {
+            return value;
+        }
+
+        return null;
     }
 }

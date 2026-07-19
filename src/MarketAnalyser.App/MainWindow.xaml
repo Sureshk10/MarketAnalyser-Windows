@@ -422,6 +422,9 @@
                                 Content="S/R"
                                 Command="{Binding OpenSupportResistanceCommand}" />
                             <Button Style="{StaticResource SmallChromeButton}"
+                                Content="News"
+                                Command="{Binding OpenNewsCommand}" />
+                            <Button Style="{StaticResource SmallChromeButton}"
                                 Content="Orders"
                                 Command="{Binding OpenOrdersPopupCommand}" />
                         </WrapPanel>
